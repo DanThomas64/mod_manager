@@ -1,0 +1,54 @@
+[bepinex]
+version = "5.4.2350"
+source_url = "https://thunderstore.io/package/download/denikson/BepInExPack_Valheim/5.4.2350/"
+sha256 = "37a91c000b4e88f2ed7a4bd7d812239852d2e36cbf0ff0a9f5faacfba46b105f"
+
+[mods.conditional-config-sync]
+version = "1.0.5"
+source_url = "https://thunderstore.io/package/download/shudnal/ConditionalConfigSync/1.0.5/"
+sha256 = "ef0fb4f2d37e36224be619afc9f311863e364111112f64d75a776f66656a3b5e"
+
+[mods.configuration-manager]
+version = "1.1.18"
+source_url = "https://thunderstore.io/package/download/shudnal/ConfigurationManager/1.1.18/"
+sha256 = "25fb8c97d38a618e5526303bcc661da42eed0b1c33715548dd01728d3a0e8788"
+
+[mods.equipment-and-quickslots]
+version = "3.1.2"
+source_url = "https://thunderstore.io/package/download/RandyKnapp/EquipmentAndQuickSlots/3.1.2/"
+sha256 = "1b25a5abb6d9d2fe7c03b9b24426f8f504cdc7985fcdd320a94d2be8dcc9ce9a"
+
+[mods.jotunn]
+version = "2.30.0"
+source_url = "https://thunderstore.io/package/download/ValheimModding/Jotunn/2.30.0/"
+sha256 = "f7f218ac3f97b27a7e65d62b5ebe7c29b93129bf3e56cf41b6870bef1ef161fd"
+
+[mods.json-dot-net]
+version = "13.0.4"
+source_url = "https://thunderstore.io/package/download/ValheimModding/JsonDotNET/13.0.4/"
+sha256 = "a221c7be7163ab9739274b962fbd1f63abde65b1418839a62f02aca210868147"
+
+[mods.plant-everything]
+version = "1.21.1"
+source_url = "https://thunderstore.io/package/download/Advize/PlantEverything/1.21.1/"
+sha256 = "f8385f42367712cbf7e36283d640ae5635e26a1491a181ba6a36dc4131550be3"
+
+[mods.speedy-paths]
+version = "1.0.9"
+source_url = "https://thunderstore.io/package/download/Nextek/SpeedyPaths/1.0.9/"
+sha256 = "e369c075f949de3716890b43a611a9153cd029d492a3c11611e460db3703b18a"
+
+[mods.timed-torches-stay-lit]
+version = "1.3.9"
+source_url = "https://thunderstore.io/package/download/TastyChickenLegs/TimedTorchesStayLit/1.3.9/"
+sha256 = "4e949dadcdef19321a68da5fa716c8f05ffff04f73b3aff3aced3cb0108818ef"
+
+[mods.xportal-patched]
+version = "1.0.0"
+source_url = "https://thunderstore.io/package/download/TeamSmoochie/XPortal_Patched/1.0.0/"
+sha256 = "d78645297d9d37fac4c00f192fc3383c7acc7fbc7a643a63f1c848efbae856f8"
+
+[mods.yaml-dot-net]
+version = "16.3.1"
+source_url = "https://thunderstore.io/package/download/ValheimModding/YamlDotNet/16.3.1/"
+sha256 = "2280480d2add7d6a7a17b882f9b755145160c852e89a14794d1493d08495d2ac"

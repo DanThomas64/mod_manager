@@ -1,0 +1,64 @@
+[bepinex]
+source = "thunderstore"
+author = "denikson"
+name = "BepInExPack_Valheim"
+
+[[mods]]
+id = "equipment-and-quickslots"
+source = "thunderstore"
+author = "RandyKnapp"
+name = "EquipmentAndQuickSlots"
+
+[[mods]]
+id = "jotunn"
+source = "thunderstore"
+author = "ValheimModding"
+name = "Jotunn"
+
+[[mods]]
+id = "plant-everything"
+source = "thunderstore"
+author = "Advize"
+name = "PlantEverything"
+
+[[mods]]
+id = "conditional-config-sync"
+source = "thunderstore"
+author = "shudnal"
+name = "ConditionalConfigSync"
+
+[[mods]]
+id = "configuration-manager"
+source = "thunderstore"
+author = "shudnal"
+name = "ConfigurationManager"
+
+[[mods]]
+id = "speedy-paths"
+source = "thunderstore"
+author = "Nextek"
+name = "SpeedyPaths"
+
+[[mods]]
+id = "xportal-patched"
+source = "thunderstore"
+author = "TeamSmoochie"
+name = "XPortal_Patched"
+
+[[mods]]
+id = "timed-torches-stay-lit"
+source = "thunderstore"
+author = "TastyChickenLegs"
+name = "TimedTorchesStayLit"
+
+[[mods]]
+id = "json-dot-net"
+source = "thunderstore"
+author = "ValheimModding"
+name = "JsonDotNET"
+
+[[mods]]
+id = "yaml-dot-net"
+source = "thunderstore"
+author = "ValheimModding"
+name = "YamlDotNet"

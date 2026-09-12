@@ -1,0 +1,80 @@
+# Maintainer Guide
+
+## One-time setup
+
+```sh
+rustup target add x86_64-pc-windows-gnu
+# Arch/CachyOS:
+sudo pacman -S mingw-w64-gcc
+# Debian/Ubuntu:
+sudo apt install mingw-w64
+```
+
+## Building the installer shells (only needed when installer-runtime/installer-shell code changes)
+
+```sh
+cargo build -p installer-shell --release
+cargo build -p installer-shell --release --target x86_64-pc-windows-gnu
+```
+
+This produces the two reusable installer binaries that `mod-packager` embeds mod payloads
+into:
+- `target/release/installer-shell` (Linux)
+- `target/x86_64-pc-windows-gnu/release/installer-shell.exe` (Windows)
+
+## Cutting a release (every time mods change)
+
+1. Edit `modpack.toml` to add/remove/change mods.
+2. Download the latest versions:
+   ```sh
+   cargo run -p downloader --bin mod-downloader
+   ```
+3. Package a release (auto-versions, writes changelog + installers):
+   ```sh
+   cargo run -p packager --bin mod-packager
+   ```
+4. Share `releases/vX.Y.Z/installer-windows.exe` and `installer-linux` (and point players
+   at that version's `INSTRUCTIONS.md`). For a dedicated server (e.g. AMP-managed), hand the
+   host `releases/vX.Y.Z/server-plugins/` and `SERVER.md` — it's a plain, uncompressed copy of
+   the mod plugin files to copy-paste over the server's `BepInEx/plugins/` folder.
+
+`mod-packager` auto-bumps the version by diffing against the previous release's lockfile:
+adding/removing a mod bumps minor, a version-only change bumps patch, no changes means
+nothing to release. See `releases/CHANGELOG.md` for the running history.
+
+## Repo layout
+
+- `crates/common` — shared config/lockfile types, semver diff logic.
+- `crates/downloader` (`mod-downloader`) — resolves + caches latest BepInEx/mod versions.
+- `crates/packager` (`mod-packager`) — builds the compressed payload, embeds it into the
+  installer shells, handles versioning/changelog, exports `server-plugins/`.
+- `crates/installer-runtime` — extraction, Valheim path detection, backup/restore logic
+  shared by both installer binaries.
+- `crates/installer-shell` — the trivial per-target binary `mod-packager` embeds payloads
+  into.
+- `cache/` — downloaded mod/BepInEx files, gitignored.
+- `releases/` — per-version lockfile, changelog, instructions, installer binaries, and
+  `server-plugins/`.
+
+## Backups and restore (what end users see)
+
+Before an install or update touches anything, the installer snapshots **every top-level
+`BepInEx/` subfolder the release is about to overwrite** — typically `core/`, `config/`,
+and `plugins/`, not just plugins — into
+`BepInEx/_installer_backups/<timestamp>/` before writing anything new. If a subfolder being
+backed up contains symlinks (e.g. a Vortex-style symlinked mod deployment), the backup
+preserves the symlinks themselves rather than copying resolved file contents, so restoring
+puts the exact previous setup back, links included.
+
+Every packaged release bakes a small marker (`BepInEx/.valheim-mod-installer.marker`) into
+the payload recording its modpack/BepInEx version, so a later backup can say whether what
+it's backing up was installed by this tool (and which version) or came from somewhere else
+(manual install, another mod manager) — shown to the user at backup time.
+
+On startup, if backups exist, the installer lists them (origin, folders captured, file/
+symlink counts) and lets the user pick one to restore instead of installing — pressing
+Enter with no input still does the normal single-click install/update. Restoring itself
+snapshots whatever's currently in place first, so it's symmetric with install and can never
+lose data. **Backups are never deleted automatically** — cleanup under
+`BepInEx/_installer_backups/` is left entirely to the user, and the installer says so every
+time it runs.

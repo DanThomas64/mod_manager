@@ -1,0 +1,12 @@
+[package]
+name = "installer-runtime"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+zstd = "0.13"
+tar = "0.4"
+
+[target.'cfg(unix)'.dependencies]
+dirs = "5"

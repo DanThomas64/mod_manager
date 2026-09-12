@@ -1,0 +1,8 @@
+[package]
+name = "installer-shell"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+installer-runtime = { path = "../installer-runtime" }
+anyhow.workspace = true
