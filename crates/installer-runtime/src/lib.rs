@@ -43,7 +43,7 @@ pub fn run() -> Result<()> {
     match prompt_main_menu(&backups)? {
         MainAction::Update => run_update(&root, &own_payload)?,
         MainAction::Restore => run_restore(&root, &backups)?,
-        MainAction::Exit => println!("{}", ansi::red_bold("Exiting — nothing was changed.")),
+        MainAction::Exit => print_wrapped_colored("Exiting — nothing was changed.", ansi::red_bold),
     }
 
     pause_before_exit();
@@ -61,20 +61,25 @@ fn run_update(root: &std::path::Path, own_payload: &extract::OwnPayload) -> Resu
     install::install_mods(&temp_dir, &root).context("copying mods into Valheim install")?;
     let _ = std::fs::remove_dir_all(&temp_dir);
 
-    println!("\n{} Mods installed to: {}", ansi::green_bold("Done!"), root.join("BepInEx").display());
+    println!();
+    println!("{}", ansi::green_bold("Done! Mods installed to:"));
+    println!("  {}", root.join("BepInEx").display());
     println!("Launch Valheim normally through Steam.");
-    println!(
-        "\n{} backups live under {} and are kept forever — this tool never deletes them. \
-         Clean them up yourself whenever you're confident you don't need them.",
-        ansi::dim("Reminder:"),
-        root.join("BepInEx").join("_installer_backups").display()
+    println!();
+    println!("{}", ansi::dim("Reminder:"));
+    print_wrapped_colored(
+        "Backups live under the path below and are kept forever — this tool never \
+         deletes them. Clean them up yourself whenever you're confident you don't need them.",
+        ansi::dim,
     );
+    println!("  {}", root.join("BepInEx").join("_installer_backups").display());
     Ok(())
 }
 
 fn run_restore(root: &std::path::Path, backups: &[(PathBuf, Option<backup::BackupInfo>)]) -> Result<()> {
     if backups.is_empty() {
-        println!("No backups found under {}.", root.join("BepInEx").join("_installer_backups").display());
+        println!("No backups found under:");
+        println!("  {}", root.join("BepInEx").join("_installer_backups").display());
         return Ok(());
     }
 
@@ -82,10 +87,12 @@ fn run_restore(root: &std::path::Path, backups: &[(PathBuf, Option<backup::Backu
         Some(chosen) => {
             let (path, _) = &backups[chosen];
             let outcome = backup::restore_backup(root, path)?;
-            println!("\nRestored backup: {}", path.display());
+            println!();
+            println!("Restored backup:");
+            println!("  {}", path.display());
             print_backup_outcome(&outcome, "What was in place just before this restore");
         }
-        None => println!("{}", ansi::red_bold("Cancelled — nothing was changed.")),
+        None => print_wrapped_colored("Cancelled — nothing was changed.", ansi::red_bold),
     }
     Ok(())
 }
@@ -93,7 +100,8 @@ fn run_restore(root: &std::path::Path, backups: &[(PathBuf, Option<backup::Backu
 fn detect_or_prompt_root() -> Result<PathBuf> {
     match detect::find_valheim_install() {
         Some(root) => {
-            println!("Found Valheim install at: {}", ansi::bold(&root.display().to_string()));
+            println!("Found Valheim install at:");
+            println!("  {}", ansi::bold(&root.display().to_string()));
             Ok(root)
         }
         None => {
@@ -134,23 +142,34 @@ fn wrap_text(text: &str, width: usize) -> Vec<String> {
     lines
 }
 
+/// Print `text`, greedy word-wrapped to `LINE_WIDTH` columns.
+fn print_wrapped(text: &str) {
+    for line in wrap_text(text, LINE_WIDTH) {
+        println!("{line}");
+    }
+}
+
+/// Like `print_wrapped`, but applies an ANSI color/style to each wrapped
+/// line individually (wrapping first keeps every visible line ≤`LINE_WIDTH`
+/// regardless of how many invisible escape-code bytes `color` adds).
+fn print_wrapped_colored(text: &str, color: fn(&str) -> String) {
+    for line in wrap_text(text, LINE_WIDTH) {
+        println!("{}", color(&line));
+    }
+}
+
 fn print_banner() {
     let border = "═".repeat(LINE_WIDTH);
     println!("{}", ansi::cyan_bold(&border));
     println!("{}", ansi::cyan_bold(&format!("{:^LINE_WIDTH$}", "Valheim Mod Installer")));
     println!("{}", ansi::cyan_bold(&border));
     println!();
-    for line in wrap_text(
+    print_wrapped(
         "This installs BepInEx and the configured mods into your Valheim install. Make \
          sure Valheim is already installed via Steam and has been run at least once.",
-        LINE_WIDTH,
-    ) {
-        println!("{line}");
-    }
+    );
     println!();
-    for line in wrap_text(DISCLAIMER, LINE_WIDTH) {
-        println!("{}", ansi::dim(&line));
-    }
+    print_wrapped_colored(DISCLAIMER, ansi::dim);
     println!();
 }
 
@@ -221,12 +240,14 @@ fn print_backup_outcome(outcome: &backup::BackupOutcome, subject: &str) {
     };
     match (&info.previous_modpack_version, &info.previous_bepinex_version) {
         (Some(modpack_version), Some(bepinex_version)) => {
-            println!(
+            print_wrapped(&format!(
                 "{subject} was installed by this tool: modpack v{modpack_version} (BepInEx v{bepinex_version})."
-            );
+            ));
         }
         _ => {
-            println!("{subject} wasn't installed by this tool (manual install or another mod manager?).");
+            print_wrapped(&format!(
+                "{subject} wasn't installed by this tool (manual install or another mod manager?)."
+            ));
         }
     }
     let folder_list = info
@@ -235,14 +256,15 @@ fn print_backup_outcome(outcome: &backup::BackupOutcome, subject: &str) {
         .map(|s| format!("BepInEx/{} ({} file(s))", s.name, s.file_count))
         .collect::<Vec<_>>()
         .join(", ");
-    println!("Backed up: {folder_list}");
+    print_wrapped(&format!("Backed up: {folder_list}"));
     if info.total_symlinks() > 0 {
-        println!(
+        print_wrapped(&format!(
             "{} of those were symlinks (e.g. Vortex-style deployment) — preserved as symlinks in the backup.",
             info.total_symlinks()
-        );
+        ));
     }
-    println!("Saved to:\n  {}", path.display());
+    println!("Saved to:");
+    println!("  {}", path.display());
 }
 
 /// List backups and let the user pick one to restore. Pressing Enter with no
@@ -273,9 +295,12 @@ fn offer_restore_menu(backups: &[(std::path::PathBuf, Option<backup::BackupInfo>
             None => "no info recorded".to_string(),
         };
         let name = path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default();
-        println!("  {} {name} — {label}", ansi::bold(&format!("{})", i + 1)));
+        println!("  {} {name}", ansi::bold(&format!("{})", i + 1)));
+        for line in wrap_text(&label, LINE_WIDTH - 6) {
+            println!("      {line}");
+        }
     }
-    println!("Press Enter to cancel, or type a number above to restore that backup.");
+    print_wrapped("Press Enter to cancel, or type a number above to restore that backup.");
     print!("> ");
     io::stdout().flush().ok();
 
@@ -296,10 +321,11 @@ fn offer_restore_menu(backups: &[(std::path::PathBuf, Option<backup::BackupInfo>
 
 fn prompt_for_path() -> Result<PathBuf> {
     loop {
-        print!(
-            "Please paste the full path to your Valheim install \
-             (the folder containing valheim.exe / valheim.x86_64): "
+        print_wrapped(
+            "Please paste the full path to your Valheim install (the folder \
+             containing valheim.exe / valheim.x86_64):",
         );
+        print!("> ");
         io::stdout().flush().ok();
         let mut line = String::new();
         let bytes_read = io::stdin().read_line(&mut line).context("reading input path")?;
@@ -310,10 +336,8 @@ fn prompt_for_path() -> Result<PathBuf> {
         if detect::is_valid_valheim_root(&candidate, |p| p.exists()) {
             return Ok(candidate);
         }
-        println!(
-            "'{}' doesn't look like a Valheim install (no valheim.exe / valheim.x86_64 found). Try again.",
-            candidate.display()
-        );
+        println!("'{}' doesn't look like a Valheim install:", candidate.display());
+        print_wrapped("(no valheim.exe / valheim.x86_64 found there). Try again.");
     }
 }
 
