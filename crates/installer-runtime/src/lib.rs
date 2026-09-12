@@ -1,3 +1,4 @@
+mod ansi;
 pub mod backup;
 pub mod detect;
 pub mod extract;
@@ -7,47 +8,49 @@ pub mod timestamp;
 
 use anyhow::{Context, Result};
 use std::io::{self, Write};
+use std::path::PathBuf;
 
 const FOOTER_MAGIC: &[u8] = b"VMODPACK1";
+const LINE_WIDTH: usize = 80;
 
-/// Entry point shared by both `installer-shell` binaries. Finds (or asks
-/// for) the Valheim install directory, offers to restore a previous backup
-/// if any exist, and otherwise backs up the current plugins folder and
-/// installs the payload embedded after this executable's own bytes.
+const DISCLAIMER: &str = "Before changing anything, every folder about to be overwritten (core, config, \
+plugins — whatever this release touches) is backed up first, symlinks and all (so a \
+Vortex-style symlinked mod setup restores exactly as it was). Backups are never \
+deleted automatically — that's on you to clean up once you're confident you don't \
+need them.";
+
+enum MainAction {
+    Update,
+    Restore,
+    Exit,
+}
+
+/// Entry point shared by both `installer-shell` binaries. Shows what's in
+/// this version, then asks the user to pick update/restore/exit before
+/// touching anything. Update backs up the current plugins folder and
+/// installs the payload embedded after this executable's own bytes; restore
+/// lists previous backups at the detected install and lets the user pick
+/// one to roll back to.
 pub fn run() -> Result<()> {
     print_banner();
 
-    let root = match detect::find_valheim_install() {
-        Some(root) => {
-            println!("Found Valheim install at: {}", root.display());
-            root
-        }
-        None => {
-            println!("Could not auto-detect your Valheim install.");
-            prompt_for_path()?
-        }
-    };
-
-    let backups = backup::list_backups(&root);
-    if !backups.is_empty() {
-        if let Some(chosen) = offer_restore_menu(&backups)? {
-            let (path, _) = &backups[chosen];
-            let outcome = backup::restore_backup(&root, path)?;
-            println!("\nRestored backup: {}", path.display());
-            print_backup_outcome(&outcome, "What was in place just before this restore");
-            pause_before_exit();
-            return Ok(());
-        }
-    }
-
     let own_payload = extract::read_own_payload().context("reading embedded mod payload")?;
     print_changelog(&own_payload.changelog);
-    if !confirm_install()? {
-        println!("\nCancelled — nothing was changed.");
-        pause_before_exit();
-        return Ok(());
+
+    let root = detect_or_prompt_root()?;
+    let backups = backup::list_backups(&root);
+
+    match prompt_main_menu(&backups)? {
+        MainAction::Update => run_update(&root, &own_payload)?,
+        MainAction::Restore => run_restore(&root, &backups)?,
+        MainAction::Exit => println!("{}", ansi::red_bold("Exiting — nothing was changed.")),
     }
 
+    pause_before_exit();
+    Ok(())
+}
+
+fn run_update(root: &std::path::Path, own_payload: &extract::OwnPayload) -> Result<()> {
     let temp_dir = std::env::temp_dir().join(format!("valheim-mod-installer-{}", std::process::id()));
     extract::unpack_payload(&own_payload.payload, &temp_dir).context("unpacking mod payload")?;
 
@@ -58,58 +61,157 @@ pub fn run() -> Result<()> {
     install::install_mods(&temp_dir, &root).context("copying mods into Valheim install")?;
     let _ = std::fs::remove_dir_all(&temp_dir);
 
-    println!("\nDone! Mods installed to: {}", root.join("BepInEx").display());
+    println!("\n{} Mods installed to: {}", ansi::green_bold("Done!"), root.join("BepInEx").display());
     println!("Launch Valheim normally through Steam.");
     println!(
-        "\nReminder: backups live under {} and are kept forever — this tool never deletes them. \
+        "\n{} backups live under {} and are kept forever — this tool never deletes them. \
          Clean them up yourself whenever you're confident you don't need them.",
+        ansi::dim("Reminder:"),
         root.join("BepInEx").join("_installer_backups").display()
     );
-    pause_before_exit();
     Ok(())
 }
 
+fn run_restore(root: &std::path::Path, backups: &[(PathBuf, Option<backup::BackupInfo>)]) -> Result<()> {
+    if backups.is_empty() {
+        println!("No backups found under {}.", root.join("BepInEx").join("_installer_backups").display());
+        return Ok(());
+    }
+
+    match offer_restore_menu(backups)? {
+        Some(chosen) => {
+            let (path, _) = &backups[chosen];
+            let outcome = backup::restore_backup(root, path)?;
+            println!("\nRestored backup: {}", path.display());
+            print_backup_outcome(&outcome, "What was in place just before this restore");
+        }
+        None => println!("{}", ansi::red_bold("Cancelled — nothing was changed.")),
+    }
+    Ok(())
+}
+
+fn detect_or_prompt_root() -> Result<PathBuf> {
+    match detect::find_valheim_install() {
+        Some(root) => {
+            println!("Found Valheim install at: {}", ansi::bold(&root.display().to_string()));
+            Ok(root)
+        }
+        None => {
+            println!("Could not auto-detect your Valheim install.");
+            prompt_for_path()
+        }
+    }
+}
+
+fn rule() -> String {
+    "─".repeat(LINE_WIDTH)
+}
+
+/// Greedy word-wrap to a fixed column width, measured in chars (not bytes)
+/// so multi-byte characters like "—" don't throw off the count.
+fn wrap_text(text: &str, width: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut current = String::new();
+    let mut current_len = 0;
+    for word in text.split_whitespace() {
+        let word_len = word.chars().count();
+        if current.is_empty() {
+            current.push_str(word);
+            current_len = word_len;
+        } else if current_len + 1 + word_len <= width {
+            current.push(' ');
+            current.push_str(word);
+            current_len += 1 + word_len;
+        } else {
+            lines.push(std::mem::take(&mut current));
+            current.push_str(word);
+            current_len = word_len;
+        }
+    }
+    if !current.is_empty() {
+        lines.push(current);
+    }
+    lines
+}
+
 fn print_banner() {
-    println!("Valheim Mod Installer");
-    println!("======================");
-    println!("This installs BepInEx and the configured mods into your Valheim install.");
-    println!("Make sure Valheim is already installed via Steam and has been run at least once.");
-    println!(
-        "Before changing anything, every folder about to be overwritten (core, config, plugins — \
-         whatever this release touches) is backed up first, symlinks and all (so a Vortex-style \
-         symlinked mod setup restores exactly as it was). Backups are never deleted automatically \
-         — that's on you to clean up once you're confident you don't need them.\n"
-    );
+    let border = "═".repeat(LINE_WIDTH);
+    println!("{}", ansi::cyan_bold(&border));
+    println!("{}", ansi::cyan_bold(&format!("{:^LINE_WIDTH$}", "Valheim Mod Installer")));
+    println!("{}", ansi::cyan_bold(&border));
+    println!();
+    for line in wrap_text(
+        "This installs BepInEx and the configured mods into your Valheim install. Make \
+         sure Valheim is already installed via Steam and has been run at least once.",
+        LINE_WIDTH,
+    ) {
+        println!("{line}");
+    }
+    println!();
+    for line in wrap_text(DISCLAIMER, LINE_WIDTH) {
+        println!("{}", ansi::dim(&line));
+    }
+    println!();
 }
 
 /// Show the changelog entry for the version embedded in this installer, so
-/// the user knows what they're about to install before confirming.
+/// the user knows what they're about to install before choosing an action —
+/// printed right after the banner, ahead of the update/restore/exit menu.
 fn print_changelog(changelog: &str) {
     let changelog = changelog.trim();
     if changelog.is_empty() {
         return;
     }
-    println!("--- What's in this version ---");
+    println!("{}", ansi::yellow_bold(&rule()));
+    println!("{}", ansi::yellow_bold("  What's in this version"));
+    println!("{}", ansi::yellow_bold(&rule()));
     println!("{changelog}");
-    println!("-------------------------------");
+    println!("{}", ansi::yellow_bold(&rule()));
+    println!();
 }
 
-/// Ask the user to confirm before making any changes. Pressing Enter with no
-/// input confirms (keeps the common case single-click); anything else
-/// starting with 'n' cancels. Stdin closing (0 bytes read, EOF) is treated
-/// as a cancel, not a confirm — an empty line from a real Enter keypress
-/// still reads as "\n" (1 byte), so this only catches a genuinely absent
-/// answer.
-fn confirm_install() -> Result<bool> {
-    print!("Continue with install? [Y/n] ");
-    io::stdout().flush().ok();
-    let mut line = String::new();
-    let bytes_read = io::stdin().read_line(&mut line).context("reading install confirmation")?;
-    if bytes_read == 0 {
-        return Ok(false);
+/// Ask the user to pick update/restore/exit. Pressing Enter with no input
+/// picks update (keeps the common case single-click). Stdin closing (0
+/// bytes read, EOF) is treated as exit, not update — a genuinely absent
+/// answer should never fall through to making changes. 'q' also quits —
+/// not listed in the menu text, but a quiet convenience for anyone who
+/// reaches for it out of habit.
+fn prompt_main_menu(backups: &[(PathBuf, Option<backup::BackupInfo>)]) -> Result<MainAction> {
+    println!("  {} Update / install mods", ansi::bold("1)"));
+    println!("  {} {}", ansi::bold("2)"), restore_menu_label(backups));
+    println!("  {} Exit", ansi::bold("3)"));
+    println!();
+    loop {
+        print!("{} ", ansi::green_bold("Choose an option [1/2/3] (default 1):"));
+        io::stdout().flush().ok();
+        let mut line = String::new();
+        let bytes_read = io::stdin().read_line(&mut line).context("reading menu choice")?;
+        if bytes_read == 0 {
+            return Ok(MainAction::Exit);
+        }
+        match line.trim().to_lowercase().as_str() {
+            "" | "1" => return Ok(MainAction::Update),
+            "2" => return Ok(MainAction::Restore),
+            "3" | "q" => return Ok(MainAction::Exit),
+            _ => println!("Unrecognized choice — enter 1, 2, or 3."),
+        }
     }
-    let trimmed = line.trim().to_lowercase();
-    Ok(trimmed.is_empty() || trimmed == "y" || trimmed == "yes")
+}
+
+/// "Restore from a backup" menu line, with a count and the most recent
+/// backup's timestamp when any exist — `backups` is already sorted newest
+/// first by `backup::list_backups`, and its folder name *is* the timestamp
+/// (`timestamp::now_stamp`), so no extra info needs to have been recorded.
+fn restore_menu_label(backups: &[(PathBuf, Option<backup::BackupInfo>)]) -> String {
+    let Some((latest_path, _)) = backups.first() else {
+        return "Restore from a backup (none available)".to_string();
+    };
+    let stamp = latest_path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    format!(
+        "Restore from a backup ({} available, latest {})",
+        backups.len(),
+        timestamp::to_display(&stamp)
+    )
 }
 
 fn print_backup_outcome(outcome: &backup::BackupOutcome, subject: &str) {
@@ -143,11 +245,11 @@ fn print_backup_outcome(outcome: &backup::BackupOutcome, subject: &str) {
     println!("Saved to:\n  {}", path.display());
 }
 
-/// If backups exist, list them and let the user pick one to restore instead
-/// of installing. Pressing Enter with no input proceeds to the normal
-/// install/update path (keeps the common case single-click).
+/// List backups and let the user pick one to restore. Pressing Enter with no
+/// input cancels the restore (returns to the top-level menu's "nothing was
+/// changed" outcome) rather than doing anything by default.
 fn offer_restore_menu(backups: &[(std::path::PathBuf, Option<backup::BackupInfo>)]) -> Result<Option<usize>> {
-    println!("Existing backups found:");
+    println!("{}", ansi::bold("Existing backups found:"));
     for (i, (path, info)) in backups.iter().enumerate() {
         let label = match info {
             Some(info) => {
@@ -171,11 +273,9 @@ fn offer_restore_menu(backups: &[(std::path::PathBuf, Option<backup::BackupInfo>
             None => "no info recorded".to_string(),
         };
         let name = path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default();
-        println!("  {}) {name} — {label}", i + 1);
+        println!("  {} {name} — {label}", ansi::bold(&format!("{})", i + 1)));
     }
-    println!(
-        "Press Enter to install/update normally, or type a number above to restore that backup instead."
-    );
+    println!("Press Enter to cancel, or type a number above to restore that backup.");
     print!("> ");
     io::stdout().flush().ok();
 
@@ -188,13 +288,13 @@ fn offer_restore_menu(backups: &[(std::path::PathBuf, Option<backup::BackupInfo>
     match trimmed.parse::<usize>() {
         Ok(n) if n >= 1 && n <= backups.len() => Ok(Some(n - 1)),
         _ => {
-            println!("Unrecognized choice — proceeding with normal install.");
+            println!("Unrecognized choice — cancelling restore.");
             Ok(None)
         }
     }
 }
 
-fn prompt_for_path() -> Result<std::path::PathBuf> {
+fn prompt_for_path() -> Result<PathBuf> {
     loop {
         print!(
             "Please paste the full path to your Valheim install \
@@ -206,7 +306,7 @@ fn prompt_for_path() -> Result<std::path::PathBuf> {
         if bytes_read == 0 {
             anyhow::bail!("no input received (stdin closed) while waiting for a Valheim install path");
         }
-        let candidate = std::path::PathBuf::from(line.trim());
+        let candidate = PathBuf::from(line.trim());
         if detect::is_valid_valheim_root(&candidate, |p| p.exists()) {
             return Ok(candidate);
         }

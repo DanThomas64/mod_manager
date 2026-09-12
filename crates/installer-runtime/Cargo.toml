@@ -10,3 +10,4 @@ tar = "0.4"
 
 [target.'cfg(unix)'.dependencies]
 dirs = "5"
+libc = "0.2"
