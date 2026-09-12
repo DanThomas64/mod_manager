@@ -69,10 +69,13 @@ fn main() -> Result<()> {
 
     std::fs::remove_dir_all(&staging_dir).ok();
 
+    let linux_name = format!("installer-linux-v{version}");
+    let windows_name = format!("installer-windows-v{version}.exe");
+
     if args.shell_linux.exists() {
-        embed::embed_payload(&args.shell_linux, &payload, &release_dir.join("installer-linux"))
+        embed::embed_payload(&args.shell_linux, &payload, &release_dir.join(&linux_name))
             .context("embedding Linux installer")?;
-        println!("  wrote installer-linux");
+        println!("  wrote {linux_name}");
     } else {
         println!(
             "  skipping Linux installer: {} not found (build it with `cargo build -p installer-shell --release`)",
@@ -81,13 +84,9 @@ fn main() -> Result<()> {
     }
 
     if args.shell_windows.exists() {
-        embed::embed_payload(
-            &args.shell_windows,
-            &payload,
-            &release_dir.join("installer-windows.exe"),
-        )
-        .context("embedding Windows installer")?;
-        println!("  wrote installer-windows.exe");
+        embed::embed_payload(&args.shell_windows, &payload, &release_dir.join(&windows_name))
+            .context("embedding Windows installer")?;
+        println!("  wrote {windows_name}");
     } else {
         println!(
             "  skipping Windows installer: {} not found (see README.md for the mingw cross-compile setup)",

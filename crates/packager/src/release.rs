@@ -76,13 +76,13 @@ pub fn render_instructions(version: &Version, bepinex_version: &Version) -> Stri
     format!(
         "# Modpack v{version} — Install Instructions\n\n\
          1. Download the file matching your OS:\n   \
-         - Windows: `installer-windows.exe`\n   \
-         - Linux (native, not Proton): `installer-linux`\n\n\
+         - Windows: `installer-windows-v{version}.exe`\n   \
+         - Linux (native, not Proton): `installer-linux-v{version}`\n\n\
          2. Make sure Valheim and Steam are already installed, and you've run the game at least once.\n\n\
          3. Run the file:\n   \
-         - Windows: double-click `installer-windows.exe`.\n   \
+         - Windows: double-click `installer-windows-v{version}.exe`.\n   \
          - Linux: open a terminal in the download folder and run:\n     \
-         `chmod +x installer-linux && ./installer-linux`\n\n\
+         `chmod +x installer-linux-v{version} && ./installer-linux-v{version}`\n\n\
          4. If it can't find your Valheim folder automatically, it will ask you to paste the path \
          (the folder containing `valheim.exe` or `valheim.x86_64`).\n\n\
          This installs modpack v{version} (BepInEx v{bepinex_version}). See CHANGELOG.md for what changed.\n\n\

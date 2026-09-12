@@ -9,7 +9,7 @@ manual DLL-juggling for your players.
 - **Resolves and downloads** the latest BepInEx and mod versions from Thunderstore or
   GitHub Releases, based on a plain `modpack.toml` you maintain.
 - **Packages** everything into a single self-extracting binary per OS
-  (`installer-windows.exe`, `installer-linux`) — a player just runs it and it finds their
+  (`installer-windows-vX.Y.Z.exe`, `installer-linux-vX.Y.Z`) — a player just runs it and it finds their
   Valheim install (or asks) and drops the mods in the right place. No dependencies needed
   on their machine.
 - **Auto-versions** each release by diffing against the last one (mod added/removed →

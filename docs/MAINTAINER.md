@@ -45,7 +45,7 @@ worth running.
    target is set up, otherwise it's skipped with a message), downloads the latest mod
    versions, and packages a release — printing the release notes and file listing at the
    end, or telling you there's nothing new to release if nothing changed.
-3. Share `releases/vX.Y.Z/installer-windows.exe` and `installer-linux` (and point players
+3. Share `releases/vX.Y.Z/installer-windows-vX.Y.Z.exe` and `installer-linux-vX.Y.Z` (and point players
    at that version's `INSTRUCTIONS.md`). For a dedicated server (e.g. AMP-managed), hand the
    host `releases/vX.Y.Z/server-plugins/` and `SERVER.md` — it's a plain, uncompressed copy of
    the mod plugin files to copy-paste over the server's `BepInEx/plugins/` folder.
