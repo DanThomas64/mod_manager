@@ -6,7 +6,6 @@ members = [
     "crates/packager",
     "crates/installer-runtime",
     "crates/installer-shell",
-    "crates/server-deploy",
 ]
 
 [workspace.package]
