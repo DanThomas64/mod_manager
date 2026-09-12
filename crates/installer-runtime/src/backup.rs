@@ -38,7 +38,7 @@ fn backups_dir(bepinex_dir: &Path) -> PathBuf {
     bepinex_dir.join(BACKUPS_DIRNAME)
 }
 
-/// Before overwriting anything, move aside every top-level `BepInEx/<name>`
+/// Before overwriting anything, copy aside every top-level `BepInEx/<name>`
 /// folder that both (a) exists in `dest_root`'s current install and (b) is
 /// about to be written to by `incoming_root` (an extracted mod payload, or
 /// another backup's snapshot being restored — both are shaped as
@@ -46,9 +46,11 @@ fn backups_dir(bepinex_dir: &Path) -> PathBuf {
 /// plugins/, and anything else a release happens to touch — not just
 /// plugins — so any config the installer changes gets captured too.
 ///
-/// Moves (not copies) preserve symlinks exactly as they were, so a
-/// Vortex-style symlinked deployment backs up and restores intact instead
-/// of being flattened into plain file copies.
+/// This only copies — the live folder is left in place so the subsequent
+/// install merges new/overwritten files on top of it instead of the live
+/// folder being emptied first. Symlinks are preserved exactly as they were,
+/// so a Vortex-style symlinked deployment backs up intact instead of being
+/// flattened into plain file copies.
 pub fn snapshot_before_overwrite(dest_root: &Path, incoming_root: &Path) -> Result<BackupOutcome> {
     let dest_bepinex = dest_root.join("BepInEx");
     let incoming_bepinex = incoming_root.join("BepInEx");
@@ -74,7 +76,7 @@ pub fn snapshot_before_overwrite(dest_root: &Path, incoming_root: &Path) -> Resu
         let src = dest_bepinex.join(&name);
         let (file_count, symlink_count) = count_files_and_symlinks(&src);
         let dst = container.join("BepInEx").join(&name);
-        move_dir_preserving_symlinks(&src, &dst)
+        copy_dir_recursive_preserving_symlinks(&src, &dst)
             .with_context(|| format!("backing up BepInEx/{name}"))?;
         subfolders.push(SubfolderStat {
             name,
@@ -120,17 +122,19 @@ pub fn list_backups(dest_root: &Path) -> Vec<(PathBuf, Option<BackupInfo>)> {
 /// Restore every subfolder captured in `backup_container` (e.g. core/,
 /// config/, plugins/ — whatever that snapshot holds) as the active one.
 /// Whatever is in place at restore time is itself snapshotted first via
-/// `snapshot_before_overwrite`, so restoring can never lose data either —
-/// it's symmetric with a normal install.
+/// `snapshot_before_overwrite` (a copy, so nothing is lost), and only then
+/// is the live folder actually replaced with the backup's contents — a
+/// restore, unlike an install, is meant to reproduce that snapshot exactly.
 pub fn restore_backup(dest_root: &Path, backup_container: &Path) -> Result<BackupOutcome> {
     let pre_restore = snapshot_before_overwrite(dest_root, backup_container)?;
     let dest_bepinex = dest_root.join("BepInEx");
     for name in incoming_subfolder_names(&backup_container.join("BepInEx")) {
-        move_dir_preserving_symlinks(
-            &backup_container.join("BepInEx").join(&name),
-            &dest_bepinex.join(&name),
-        )
-        .with_context(|| format!("restoring BepInEx/{name}"))?;
+        let dst = dest_bepinex.join(&name);
+        if dst.is_dir() {
+            std::fs::remove_dir_all(&dst).with_context(|| format!("clearing BepInEx/{name} before restore"))?;
+        }
+        move_dir_preserving_symlinks(&backup_container.join("BepInEx").join(&name), &dst)
+            .with_context(|| format!("restoring BepInEx/{name}"))?;
     }
     Ok(pre_restore)
 }
