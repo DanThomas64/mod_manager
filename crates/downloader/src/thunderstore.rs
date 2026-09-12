@@ -1,13 +1,6 @@
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 
-/// Thunderstore's global `/api/v1/package/` index is scoped to whatever the
-/// "default" community happens to be (historically Risk of Rain 2) and does
-/// NOT include Valheim packages. Each community has its own scoped index at
-/// `/c/{community}/api/v1/package/` — Valheim mods (including BepInEx's own
-/// `denikson/BepInExPack_Valheim`) only show up there.
-const VALHEIM_PACKAGE_INDEX_URL: &str = "https://thunderstore.io/c/valheim/api/v1/package/";
-
 #[derive(Debug, Deserialize)]
 struct Package {
     owner: String,
@@ -28,15 +21,22 @@ pub struct Resolved {
     pub filename: String,
 }
 
-/// Resolve the newest version of a Thunderstore package by owner+name.
+/// Resolve the newest version of a Thunderstore package by owner+name,
+/// within the given community. Thunderstore's global `/api/v1/package/`
+/// index is scoped to whatever the "default" community happens to be
+/// (historically Risk of Rain 2), not any particular game — each game's
+/// community has its own scoped index at `/c/{community}/api/v1/package/`,
+/// which is what `community` (from `game.thunderstore_community` in config)
+/// selects.
 ///
 /// The v1 package index returns each package's `versions` already sorted
 /// newest-first, but we don't trust that ordering blindly — pick the entry
 /// with the max `date_created` (ISO 8601 strings sort correctly lexically).
-pub fn resolve_latest(client: &reqwest::blocking::Client, author: &str, name: &str) -> Result<Resolved> {
+pub fn resolve_latest(client: &reqwest::blocking::Client, community: &str, author: &str, name: &str) -> Result<Resolved> {
+    let url = format!("https://thunderstore.io/c/{community}/api/v1/package/");
     let packages: Vec<Package> = client
-        .get(VALHEIM_PACKAGE_INDEX_URL)
-        .header("User-Agent", "valheim-mod-installer")
+        .get(&url)
+        .header("User-Agent", "mod-installer")
         .send()
         .context("requesting Thunderstore package index")?
         .error_for_status()

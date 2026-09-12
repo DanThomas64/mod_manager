@@ -1,16 +1,13 @@
+use crate::game_metadata::GameMetadata;
 use std::path::{Path, PathBuf};
 
-/// Executable names that indicate a folder is a Valheim install, one per OS.
-const WINDOWS_MARKER: &str = "valheim.exe";
-const LINUX_MARKER: &str = "valheim.x86_64";
-
-/// True if `root` contains the Valheim executable for this OS. `exists` is
+/// True if `root` contains either OS's executable for this game. `exists` is
 /// injected so this stays unit-testable without touching the real filesystem.
-pub fn is_valid_valheim_root(root: &Path, exists: impl Fn(&Path) -> bool) -> bool {
-    exists(&root.join(WINDOWS_MARKER)) || exists(&root.join(LINUX_MARKER))
+pub fn is_valid_game_root(root: &Path, windows_exe: &str, linux_exe: &str, exists: impl Fn(&Path) -> bool) -> bool {
+    exists(&root.join(windows_exe)) || exists(&root.join(linux_exe))
 }
 
-/// Candidate Steam library `steamapps` roots to check for a `common/Valheim`
+/// Candidate Steam library `steamapps` roots to check for a `common/<folder>`
 /// subfolder, before falling back to parsing `libraryfolders.vdf`.
 #[cfg(windows)]
 fn default_steamapps_roots() -> Vec<PathBuf> {
@@ -57,33 +54,45 @@ pub fn parse_library_paths(vdf_contents: &str) -> Vec<PathBuf> {
         .collect()
 }
 
-/// Build the full list of `steamapps/common/Valheim` candidates: the default
-/// Steam roots, plus any extra library folders found in each root's
+/// Build the full list of `steamapps/common/<folder_name>` candidates: the
+/// default Steam roots, plus any extra library folders found in each root's
 /// `libraryfolders.vdf`.
-fn valheim_candidates() -> Vec<PathBuf> {
+fn game_candidates(folder_name: &str) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
     for steamapps in default_steamapps_roots() {
-        candidates.push(steamapps.join("common").join("Valheim"));
+        candidates.push(steamapps.join("common").join(folder_name));
 
         let vdf_path = steamapps.join("libraryfolders.vdf");
         if let Ok(contents) = std::fs::read_to_string(&vdf_path) {
             for lib_root in parse_library_paths(&contents) {
-                candidates.push(lib_root.join("steamapps").join("common").join("Valheim"));
+                candidates.push(lib_root.join("steamapps").join("common").join(folder_name));
             }
         }
     }
     candidates
 }
 
-/// Pick the first candidate that actually looks like a Valheim install.
-pub fn find_first_valid(candidates: Vec<PathBuf>, exists: impl Fn(&Path) -> bool + Copy) -> Option<PathBuf> {
-    candidates.into_iter().find(|c| is_valid_valheim_root(c, exists))
+/// Pick the first candidate that actually looks like a valid game install.
+pub fn find_first_valid(
+    candidates: Vec<PathBuf>,
+    windows_exe: &str,
+    linux_exe: &str,
+    exists: impl Fn(&Path) -> bool + Copy,
+) -> Option<PathBuf> {
+    candidates
+        .into_iter()
+        .find(|c| is_valid_game_root(c, windows_exe, linux_exe, exists))
 }
 
-/// Auto-detect the Valheim install directory on this machine, or `None` if
+/// Auto-detect the game's install directory on this machine, or `None` if
 /// nothing was found (caller should fall back to prompting the user).
-pub fn find_valheim_install() -> Option<PathBuf> {
-    find_first_valid(valheim_candidates(), |p| p.exists())
+pub fn find_game_install(game: &GameMetadata) -> Option<PathBuf> {
+    find_first_valid(
+        game_candidates(&game.steam_folder_name),
+        &game.windows_exe,
+        &game.linux_exe,
+        |p| p.exists(),
+    )
 }
 
 #[cfg(test)]
@@ -119,18 +128,16 @@ mod tests {
 
     #[test]
     fn find_first_valid_picks_matching_candidate() {
-        let real: HashSet<PathBuf> = [
-            PathBuf::from("/lib2/steamapps/common/Valheim/valheim.x86_64"),
-        ]
-        .into_iter()
-        .collect();
+        let real: HashSet<PathBuf> = [PathBuf::from("/lib2/steamapps/common/Valheim/valheim.x86_64")]
+            .into_iter()
+            .collect();
         let exists = |p: &Path| real.contains(&p.to_path_buf());
 
         let candidates = vec![
             PathBuf::from("/lib1/steamapps/common/Valheim"),
             PathBuf::from("/lib2/steamapps/common/Valheim"),
         ];
-        let found = find_first_valid(candidates, exists);
+        let found = find_first_valid(candidates, "valheim.exe", "valheim.x86_64", exists);
         assert_eq!(found, Some(PathBuf::from("/lib2/steamapps/common/Valheim")));
     }
 
@@ -138,6 +145,6 @@ mod tests {
     fn find_first_valid_returns_none_when_nothing_matches() {
         let exists = |_: &Path| false;
         let candidates = vec![PathBuf::from("/nowhere/Valheim")];
-        assert_eq!(find_first_valid(candidates, exists), None);
+        assert_eq!(find_first_valid(candidates, "valheim.exe", "valheim.x86_64", exists), None);
     }
 }

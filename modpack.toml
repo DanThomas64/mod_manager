@@ -1,4 +1,14 @@
-[bepinex]
+[game]
+name = "Valheim"
+steam_folder_name = "Valheim"
+windows_exe = "valheim.exe"
+linux_exe = "valheim.x86_64"
+steam_appid = 892970
+dedicated_server_appid = 896660
+thunderstore_community = "valheim"
+
+[loader]
+type = "bepinex"
 source = "thunderstore"
 author = "denikson"
 name = "BepInExPack_Valheim"

@@ -25,7 +25,7 @@ pub fn fetch_cached(
         let tmp_path = path.with_extension("part");
         let mut response = client
             .get(download_url)
-            .header("User-Agent", "valheim-mod-installer")
+            .header("User-Agent", "mod-installer")
             .send()
             .with_context(|| format!("downloading {id}@{version} from {download_url}"))?
             .error_for_status()

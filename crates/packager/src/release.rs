@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use common::config::{GameConfig, LoaderType};
 use common::diff::{ChangeSet, apply_bump, bump_kind};
 use common::lockfile::Lockfile;
 use semver::Version;
@@ -33,8 +34,8 @@ pub fn next_version(previous: &Option<Version>, changes: &ChangeSet) -> Option<V
 }
 
 /// Render a markdown changelog entry for one release.
-pub fn render_changelog_entry(version: &Version, bepinex_version: &Version, changes: &ChangeSet, date: &str) -> String {
-    let mut out = format!("## v{version} — {date}\nBepInEx: {bepinex_version}\n");
+pub fn render_changelog_entry(version: &Version, loader_version: &str, changes: &ChangeSet, date: &str) -> String {
+    let mut out = format!("## v{version} — {date}\nLoader: {loader_version}\n");
 
     if !changes.added.is_empty() {
         out.push_str("\n### Added\n");
@@ -48,8 +49,8 @@ pub fn render_changelog_entry(version: &Version, bepinex_version: &Version, chan
             out.push_str(&format!("- {id}: {old} → {new}\n"));
         }
     }
-    if let Some((old, new)) = &changes.bepinex_changed {
-        out.push_str("\n### BepInEx\n");
+    if let Some((old, new)) = &changes.loader_changed {
+        out.push_str("\n### Loader\n");
         match old {
             Some(old) => out.push_str(&format!("- {old} → {new}\n")),
             None => out.push_str(&format!("- {new}\n")),
@@ -72,47 +73,60 @@ pub fn prepend_changelog(releases_dir: &Path, entry: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn render_instructions(version: &Version, bepinex_version: &Version) -> String {
+pub fn render_instructions(version: &Version, loader_version: &str, game: &GameConfig, loader_type: LoaderType) -> String {
+    let loader_note = match loader_type {
+        LoaderType::Bepinex => format!(
+            "\nLinux note: BepInEx on Linux requires a Steam launch option. In Steam, right-click {} -> \
+             Properties -> Launch Options, and set it to run `start_game_bepinex.sh` from the game folder \
+             (see BepInEx's own README included in this install for the exact command). Windows needs no \
+             extra setup — BepInEx loads automatically.\n",
+            game.name
+        ),
+        LoaderType::Generic => String::new(),
+    };
+
     format!(
         "# Modpack v{version} — Install Instructions\n\n\
          1. Download the file matching your OS:\n   \
          - Windows: `installer-windows.exe`\n   \
          - Linux (native, not Proton): `installer-linux`\n\n\
-         2. Make sure Valheim and Steam are already installed, and you've run the game at least once.\n\n\
+         2. Make sure {game_name} and Steam are already installed, and you've run the game at least once.\n\n\
          3. Run the file:\n   \
          - Windows: double-click `installer-windows.exe`.\n   \
          - Linux: open a terminal in the download folder and run:\n     \
          `chmod +x installer-linux && ./installer-linux`\n\n\
-         4. If it can't find your Valheim folder automatically, it will ask you to paste the path \
-         (the folder containing `valheim.exe` or `valheim.x86_64`).\n\n\
-         This installs modpack v{version} (BepInEx v{bepinex_version}). See CHANGELOG.md for what changed.\n\n\
-         Linux note: BepInEx on Linux requires a Steam launch option. In Steam, right-click Valheim -> \
-         Properties -> Launch Options, and set it to run `start_game_bepinex.sh` from the game folder \
-         (see BepInEx's own README included in this install for the exact command). Windows needs no \
-         extra setup — BepInEx loads automatically.\n"
+         4. If it can't find your {game_name} folder automatically, it will ask you to paste the path \
+         (the folder containing `{windows_exe}` or `{linux_exe}`).\n\n\
+         This installs modpack v{version} (loader v{loader_version}). See CHANGELOG.md for what changed.\n\
+         {loader_note}",
+        game_name = game.name,
+        windows_exe = game.windows_exe,
+        linux_exe = game.linux_exe,
     )
 }
 
-pub fn render_server_instructions(version: &Version, bepinex_version: &Version) -> String {
+pub fn render_server_instructions(
+    version: &Version,
+    loader_version: &str,
+    game: &GameConfig,
+    mods_subpath: &str,
+) -> String {
     format!(
         "# Modpack v{version} — Dedicated Server Instructions\n\n\
          The `server-plugins/` folder in this release is a plain, uncompressed copy of every \
-         configured mod's plugin files — exactly what needs to be present under your server's \
-         `BepInEx/plugins/` folder.\n\n\
+         configured mod's files — exactly what needs to be present under your server's \
+         `{mods_subpath}/` folder.\n\n\
          ## Manual update (copy-paste)\n\n\
          1. Stop the server.\n\
-         2. Make sure BepInEx v{bepinex_version} is already installed on the server (same \
-         `denikson-BepInExPack_Valheim` pack the client installers use).\n\
-         3. Copy the contents of `server-plugins/` into the server's `BepInEx/plugins/` folder, \
+         2. Make sure the loader (v{loader_version}) is already installed on the server, same as the \
+         client installers use.\n\
+         3. Copy the contents of `server-plugins/` into the server's `{mods_subpath}/` folder, \
          overwriting existing files.\n\
          4. Start the server back up.\n\n\
-         This is modpack v{version} — see CHANGELOG.md for what changed. Server-side mods should \
-         match the version installed on clients; mismatched BepInEx/mod versions between server \
-         and clients can cause connection or desync issues.\n\n\
-         ## AMP\n\n\
-         No direct AMP automation yet — for now this is a manual copy-paste step via AMP's file \
-         manager (or SFTP) onto the server's `BepInEx/plugins/` folder. Wiring this into AMP's \
-         update/deployment flow is a planned improvement.\n"
+         This is modpack v{version} for {game_name} — see CHANGELOG.md for what changed. Server-side \
+         mods should match the version installed on clients; mismatched loader/mod versions between \
+         server and clients can cause connection or desync issues.\n",
+        game_name = game.name,
     )
 }
 

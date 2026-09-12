@@ -4,14 +4,17 @@ use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LockedEntry {
-    pub version: semver::Version,
+    /// Opaque version string — a real semver for Thunderstore/GitHub
+    /// sources, or a synthesized token (e.g. `updated-<timestamp>`) for
+    /// sources without real versioning, like Steam Workshop items.
+    pub version: String,
     pub source_url: String,
     pub sha256: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Lockfile {
-    pub bepinex: Option<LockedEntry>,
+    pub loader: Option<LockedEntry>,
     #[serde(default)]
     pub mods: BTreeMap<String, LockedEntry>,
 }

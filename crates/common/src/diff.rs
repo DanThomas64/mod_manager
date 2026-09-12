@@ -3,23 +3,20 @@ use semver::Version;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChangeSet {
-    /// Mod ids present in `new` but not `old` (BepInEx version bumps are
-    /// tracked separately via `bepinex_changed`, not through this list).
-    pub added: Vec<(String, Version)>,
+    /// Mod ids present in `new` but not `old` (loader version bumps are
+    /// tracked separately via `loader_changed`, not through this list).
+    pub added: Vec<(String, String)>,
     /// Mod ids present in `old` but not `new`.
-    pub removed: Vec<(String, Version)>,
+    pub removed: Vec<(String, String)>,
     /// Mod ids present in both, with a different version.
-    pub changed: Vec<(String, Version, Version)>,
-    /// BepInEx version change, if any: (old, new).
-    pub bepinex_changed: Option<(Option<Version>, Version)>,
+    pub changed: Vec<(String, String, String)>,
+    /// Loader version change, if any: (old, new).
+    pub loader_changed: Option<(Option<String>, String)>,
 }
 
 impl ChangeSet {
     pub fn is_empty(&self) -> bool {
-        self.added.is_empty()
-            && self.removed.is_empty()
-            && self.changed.is_empty()
-            && self.bepinex_changed.is_none()
+        self.added.is_empty() && self.removed.is_empty() && self.changed.is_empty() && self.loader_changed.is_none()
     }
 }
 
@@ -30,6 +27,12 @@ pub enum BumpKind {
 }
 
 /// Compare two lockfiles and report what changed. Pure function, no I/O.
+///
+/// Per-mod/loader versions are compared as opaque strings (`!=` only, never
+/// ordered) — that's deliberate: not every mod source has a real semver
+/// (e.g. a Steam Workshop item's "version" is a synthesized update
+/// timestamp), and equality is all this needs. Only the release's own
+/// top-level version (`apply_bump` below) needs real semver.
 pub fn diff_lockfiles(old: &Lockfile, new: &Lockfile) -> ChangeSet {
     let mut added = Vec::new();
     let mut removed = Vec::new();
@@ -53,7 +56,7 @@ pub fn diff_lockfiles(old: &Lockfile, new: &Lockfile) -> ChangeSet {
     removed.sort_by(|a, b| a.0.cmp(&b.0));
     changed.sort_by(|a, b| a.0.cmp(&b.0));
 
-    let bepinex_changed = match (&old.bepinex, &new.bepinex) {
+    let loader_changed = match (&old.loader, &new.loader) {
         (None, Some(new_entry)) => Some((None, new_entry.version.clone())),
         (Some(old_entry), Some(new_entry)) if old_entry.version != new_entry.version => {
             Some((Some(old_entry.version.clone()), new_entry.version.clone()))
@@ -65,11 +68,11 @@ pub fn diff_lockfiles(old: &Lockfile, new: &Lockfile) -> ChangeSet {
         added,
         removed,
         changed,
-        bepinex_changed,
+        loader_changed,
     }
 }
 
-/// Added/removed mods => minor bump. Only version changes (mods or BepInEx)
+/// Added/removed mods => minor bump. Only version changes (mods or loader)
 /// => patch bump. No changes => no release.
 pub fn bump_kind(changes: &ChangeSet) -> Option<BumpKind> {
     if changes.is_empty() {
@@ -81,8 +84,9 @@ pub fn bump_kind(changes: &ChangeSet) -> Option<BumpKind> {
     }
 }
 
-/// Apply a bump to a version following standard semver reset rules: a minor
-/// bump resets patch to 0, a patch bump only increments patch.
+/// Apply a bump to the release's own version, following standard semver
+/// reset rules: a minor bump resets patch to 0, a patch bump only
+/// increments patch. This is the one place real semver ordering matters.
 pub fn apply_bump(version: &Version, bump: BumpKind) -> Version {
     let mut v = version.clone();
     match bump {
@@ -107,19 +111,19 @@ mod tests {
 
     fn entry(version: &str) -> LockedEntry {
         LockedEntry {
-            version: Version::parse(version).unwrap(),
+            version: version.to_string(),
             source_url: "https://example.com".into(),
             sha256: "deadbeef".into(),
         }
     }
 
-    fn lockfile(bepinex: Option<&str>, mods: &[(&str, &str)]) -> Lockfile {
+    fn lockfile(loader: Option<&str>, mods: &[(&str, &str)]) -> Lockfile {
         let mut map = BTreeMap::new();
         for (id, version) in mods {
             map.insert(id.to_string(), entry(version));
         }
         Lockfile {
-            bepinex: bepinex.map(entry),
+            loader: loader.map(entry),
             mods: map,
         }
     }
@@ -138,7 +142,7 @@ mod tests {
         let old = lockfile(Some("5.4.0"), &[("mod-a", "1.0.0")]);
         let new = lockfile(Some("5.4.0"), &[("mod-a", "1.0.0"), ("mod-b", "2.0.0")]);
         let changes = diff_lockfiles(&old, &new);
-        assert_eq!(changes.added, vec![("mod-b".to_string(), Version::parse("2.0.0").unwrap())]);
+        assert_eq!(changes.added, vec![("mod-b".to_string(), "2.0.0".to_string())]);
         assert_eq!(bump_kind(&changes), Some(BumpKind::Minor));
     }
 
@@ -147,7 +151,7 @@ mod tests {
         let old = lockfile(Some("5.4.0"), &[("mod-a", "1.0.0"), ("mod-b", "2.0.0")]);
         let new = lockfile(Some("5.4.0"), &[("mod-a", "1.0.0")]);
         let changes = diff_lockfiles(&old, &new);
-        assert_eq!(changes.removed, vec![("mod-b".to_string(), Version::parse("2.0.0").unwrap())]);
+        assert_eq!(changes.removed, vec![("mod-b".to_string(), "2.0.0".to_string())]);
         assert_eq!(bump_kind(&changes), Some(BumpKind::Minor));
     }
 
@@ -158,22 +162,30 @@ mod tests {
         let changes = diff_lockfiles(&old, &new);
         assert_eq!(
             changes.changed,
-            vec![(
-                "mod-a".to_string(),
-                Version::parse("1.0.0").unwrap(),
-                Version::parse("1.0.1").unwrap()
-            )]
+            vec![("mod-a".to_string(), "1.0.0".to_string(), "1.0.1".to_string())]
         );
         assert_eq!(bump_kind(&changes), Some(BumpKind::Patch));
     }
 
     #[test]
-    fn bepinex_version_change_means_patch_bump() {
+    fn loader_version_change_means_patch_bump() {
         let old = lockfile(Some("5.4.0"), &[]);
         let new = lockfile(Some("5.4.1"), &[]);
         let changes = diff_lockfiles(&old, &new);
-        assert!(changes.bepinex_changed.is_some());
+        assert!(changes.loader_changed.is_some());
         assert_eq!(bump_kind(&changes), Some(BumpKind::Patch));
+    }
+
+    #[test]
+    fn non_semver_versions_still_diff_by_equality() {
+        // e.g. a Steam Workshop item's synthesized "updated-<timestamp>" version.
+        let old = lockfile(None, &[("workshop-mod", "updated-1000")]);
+        let new = lockfile(None, &[("workshop-mod", "updated-2000")]);
+        let changes = diff_lockfiles(&old, &new);
+        assert_eq!(
+            changes.changed,
+            vec![("workshop-mod".to_string(), "updated-1000".to_string(), "updated-2000".to_string())]
+        );
     }
 
     #[test]

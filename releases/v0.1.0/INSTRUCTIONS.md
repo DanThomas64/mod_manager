@@ -13,6 +13,6 @@
 
 4. If it can't find your Valheim folder automatically, it will ask you to paste the path (the folder containing `valheim.exe` or `valheim.x86_64`).
 
-This installs modpack v0.1.0 (BepInEx v5.4.2350). See CHANGELOG.md for what changed.
+This installs modpack v0.1.0 (loader v5.4.2350). See CHANGELOG.md for what changed.
 
 Linux note: BepInEx on Linux requires a Steam launch option. In Steam, right-click Valheim -> Properties -> Launch Options, and set it to run `start_game_bepinex.sh` from the game folder (see BepInEx's own README included in this install for the exact command). Windows needs no extra setup — BepInEx loads automatically.

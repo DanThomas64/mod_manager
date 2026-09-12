@@ -30,7 +30,7 @@ pub fn resolve_latest(
     let url = format!("https://api.github.com/repos/{owner}/{repo}/releases/latest");
     let mut request = client
         .get(&url)
-        .header("User-Agent", "valheim-mod-installer")
+        .header("User-Agent", "mod-installer")
         .header("Accept", "application/vnd.github+json");
     if let Ok(token) = std::env::var("GITHUB_TOKEN") {
         request = request.header("Authorization", format!("Bearer {token}"));

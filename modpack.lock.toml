@@ -1,4 +1,4 @@
-[bepinex]
+[loader]
 version = "5.4.2350"
 source_url = "https://thunderstore.io/package/download/denikson/BepInExPack_Valheim/5.4.2350/"
 sha256 = "37a91c000b4e88f2ed7a4bd7d812239852d2e36cbf0ff0a9f5faacfba46b105f"
@@ -29,9 +29,9 @@ source_url = "https://thunderstore.io/package/download/ValheimModding/JsonDotNET
 sha256 = "a221c7be7163ab9739274b962fbd1f63abde65b1418839a62f02aca210868147"
 
 [mods.plant-everything]
-version = "1.21.1"
-source_url = "https://thunderstore.io/package/download/Advize/PlantEverything/1.21.1/"
-sha256 = "f8385f42367712cbf7e36283d640ae5635e26a1491a181ba6a36dc4131550be3"
+version = "1.21.2"
+source_url = "https://thunderstore.io/package/download/Advize/PlantEverything/1.21.2/"
+sha256 = "6b598e8a9cc87eba6a577a519ed418307d120c826fef82ff01a5ef69d105192b"
 
 [mods.speedy-paths]
 version = "1.0.9"

@@ -14,7 +14,7 @@ pub struct SubfolderStat {
 pub struct BackupInfo {
     pub backed_up_at: String,
     pub previous_modpack_version: Option<String>,
-    pub previous_bepinex_version: Option<String>,
+    pub previous_loader_version: Option<String>,
     pub subfolders: Vec<SubfolderStat>,
 }
 
@@ -34,28 +34,31 @@ pub struct BackupOutcome {
     pub info: Option<BackupInfo>,
 }
 
-fn backups_dir(bepinex_dir: &Path) -> PathBuf {
-    bepinex_dir.join(BACKUPS_DIRNAME)
+fn backups_dir(loader_dir: &Path) -> PathBuf {
+    loader_dir.join(BACKUPS_DIRNAME)
 }
 
-/// Before overwriting anything, move aside every top-level `BepInEx/<name>`
-/// folder that both (a) exists in `dest_root`'s current install and (b) is
-/// about to be written to by `incoming_root` (an extracted mod payload, or
-/// another backup's snapshot being restored — both are shaped as
-/// `<root>/BepInEx/<name>/...`). This generically covers core/, config/,
-/// plugins/, and anything else a release happens to touch — not just
-/// plugins — so any config the installer changes gets captured too.
+/// Before overwriting anything, move aside every top-level
+/// `{loader_root}/<name>` folder that both (a) exists in `dest_root`'s
+/// current install and (b) is about to be written to by `incoming_root` (an
+/// extracted mod payload, or another backup's snapshot being restored —
+/// both are shaped as `<root>/{loader_root}/<name>/...`). `loader_root` is
+/// the game-root-relative loader directory (e.g. `BepInEx`, or a generic
+/// loader's configured mods folder) from the current release's game
+/// metadata. This generically covers core/, config/, plugins/, and
+/// anything else a release happens to touch — not just mods — so any
+/// config the installer changes gets captured too.
 ///
 /// Moves (not copies) preserve symlinks exactly as they were, so a
 /// Vortex-style symlinked deployment backs up and restores intact instead
 /// of being flattened into plain file copies.
-pub fn snapshot_before_overwrite(dest_root: &Path, incoming_root: &Path) -> Result<BackupOutcome> {
-    let dest_bepinex = dest_root.join("BepInEx");
-    let incoming_bepinex = incoming_root.join("BepInEx");
+pub fn snapshot_before_overwrite(dest_root: &Path, incoming_root: &Path, loader_root: &str) -> Result<BackupOutcome> {
+    let dest_loader_dir = dest_root.join(loader_root);
+    let incoming_loader_dir = incoming_root.join(loader_root);
 
-    let names = incoming_subfolder_names(&incoming_bepinex)
+    let names = incoming_subfolder_names(&incoming_loader_dir)
         .into_iter()
-        .filter(|name| dest_bepinex.join(name).is_dir())
+        .filter(|name| dest_loader_dir.join(name).is_dir())
         .collect::<Vec<_>>();
     if names.is_empty() {
         return Ok(BackupOutcome {
@@ -65,17 +68,16 @@ pub fn snapshot_before_overwrite(dest_root: &Path, incoming_root: &Path) -> Resu
         });
     }
 
-    let previous_marker = marker::read_marker(&dest_bepinex);
-    let container = backups_dir(&dest_bepinex).join(timestamp::now_stamp());
-    std::fs::create_dir_all(container.join("BepInEx")).context("creating backup directory")?;
+    let previous_marker = marker::read_marker(&dest_loader_dir);
+    let container = backups_dir(&dest_loader_dir).join(timestamp::now_stamp());
+    std::fs::create_dir_all(container.join(loader_root)).context("creating backup directory")?;
 
     let mut subfolders = Vec::new();
     for name in names {
-        let src = dest_bepinex.join(&name);
+        let src = dest_loader_dir.join(&name);
         let (file_count, symlink_count) = count_files_and_symlinks(&src);
-        let dst = container.join("BepInEx").join(&name);
-        move_dir_preserving_symlinks(&src, &dst)
-            .with_context(|| format!("backing up BepInEx/{name}"))?;
+        let dst = container.join(loader_root).join(&name);
+        move_dir_preserving_symlinks(&src, &dst).with_context(|| format!("backing up {loader_root}/{name}"))?;
         subfolders.push(SubfolderStat {
             name,
             file_count,
@@ -86,7 +88,7 @@ pub fn snapshot_before_overwrite(dest_root: &Path, incoming_root: &Path) -> Resu
     let info = BackupInfo {
         backed_up_at: timestamp::now_stamp(),
         previous_modpack_version: previous_marker.as_ref().map(|m| m.modpack_version.clone()),
-        previous_bepinex_version: previous_marker.as_ref().map(|m| m.bepinex_version.clone()),
+        previous_loader_version: previous_marker.as_ref().map(|m| m.loader_version.clone()),
         subfolders,
     };
     write_backup_info(&container, &info)?;
@@ -100,8 +102,8 @@ pub fn snapshot_before_overwrite(dest_root: &Path, incoming_root: &Path) -> Resu
 
 /// List existing backups, newest first, each with whatever info was
 /// recorded about it at backup time.
-pub fn list_backups(dest_root: &Path) -> Vec<(PathBuf, Option<BackupInfo>)> {
-    let dir = backups_dir(&dest_root.join("BepInEx"));
+pub fn list_backups(dest_root: &Path, loader_root: &str) -> Vec<(PathBuf, Option<BackupInfo>)> {
+    let dir = backups_dir(&dest_root.join(loader_root));
     let mut out: Vec<(PathBuf, Option<BackupInfo>)> = std::fs::read_dir(&dir)
         .into_iter()
         .flatten()
@@ -122,21 +124,21 @@ pub fn list_backups(dest_root: &Path) -> Vec<(PathBuf, Option<BackupInfo>)> {
 /// Whatever is in place at restore time is itself snapshotted first via
 /// `snapshot_before_overwrite`, so restoring can never lose data either —
 /// it's symmetric with a normal install.
-pub fn restore_backup(dest_root: &Path, backup_container: &Path) -> Result<BackupOutcome> {
-    let pre_restore = snapshot_before_overwrite(dest_root, backup_container)?;
-    let dest_bepinex = dest_root.join("BepInEx");
-    for name in incoming_subfolder_names(&backup_container.join("BepInEx")) {
+pub fn restore_backup(dest_root: &Path, backup_container: &Path, loader_root: &str) -> Result<BackupOutcome> {
+    let pre_restore = snapshot_before_overwrite(dest_root, backup_container, loader_root)?;
+    let dest_loader_dir = dest_root.join(loader_root);
+    for name in incoming_subfolder_names(&backup_container.join(loader_root)) {
         move_dir_preserving_symlinks(
-            &backup_container.join("BepInEx").join(&name),
-            &dest_bepinex.join(&name),
+            &backup_container.join(loader_root).join(&name),
+            &dest_loader_dir.join(&name),
         )
-        .with_context(|| format!("restoring BepInEx/{name}"))?;
+        .with_context(|| format!("restoring {loader_root}/{name}"))?;
     }
     Ok(pre_restore)
 }
 
-fn incoming_subfolder_names(bepinex_dir: &Path) -> Vec<String> {
-    std::fs::read_dir(bepinex_dir)
+fn incoming_subfolder_names(loader_dir: &Path) -> Vec<String> {
+    std::fs::read_dir(loader_dir)
         .into_iter()
         .flatten()
         .filter_map(|e| e.ok())
@@ -220,10 +222,10 @@ fn count_files_and_symlinks(dir: &Path) -> (usize, usize) {
 
 fn write_backup_info(container: &Path, info: &BackupInfo) -> Result<()> {
     let mut text = format!(
-        "backed_up_at={}\nprevious_modpack_version={}\nprevious_bepinex_version={}\nsubfolders={}\n",
+        "backed_up_at={}\nprevious_modpack_version={}\nprevious_loader_version={}\nsubfolders={}\n",
         info.backed_up_at,
         info.previous_modpack_version.as_deref().unwrap_or("unknown"),
-        info.previous_bepinex_version.as_deref().unwrap_or("unknown"),
+        info.previous_loader_version.as_deref().unwrap_or("unknown"),
         info.subfolders
             .iter()
             .map(|s| s.name.as_str())
@@ -242,7 +244,7 @@ fn read_backup_info(container: &Path) -> Option<BackupInfo> {
     let text = std::fs::read_to_string(container.join(BACKUP_INFO_FILENAME)).ok()?;
     let mut backed_up_at = String::new();
     let mut previous_modpack_version = None;
-    let mut previous_bepinex_version = None;
+    let mut previous_loader_version = None;
     let mut subfolder_names: Vec<String> = Vec::new();
     let mut file_counts = std::collections::HashMap::new();
     let mut symlink_counts = std::collections::HashMap::new();
@@ -252,12 +254,8 @@ fn read_backup_info(container: &Path) -> Option<BackupInfo> {
         let value = value.trim();
         match key.trim() {
             "backed_up_at" => backed_up_at = value.to_string(),
-            "previous_modpack_version" if value != "unknown" => {
-                previous_modpack_version = Some(value.to_string())
-            }
-            "previous_bepinex_version" if value != "unknown" => {
-                previous_bepinex_version = Some(value.to_string())
-            }
+            "previous_modpack_version" if value != "unknown" => previous_modpack_version = Some(value.to_string()),
+            "previous_loader_version" if value != "unknown" => previous_loader_version = Some(value.to_string()),
             "subfolders" => {
                 subfolder_names = value.split(',').filter(|s| !s.is_empty()).map(String::from).collect()
             }
@@ -285,7 +283,7 @@ fn read_backup_info(container: &Path) -> Option<BackupInfo> {
     Some(BackupInfo {
         backed_up_at,
         previous_modpack_version,
-        previous_bepinex_version,
+        previous_loader_version,
         subfolders,
     })
 }
