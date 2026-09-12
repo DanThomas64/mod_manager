@@ -25,7 +25,7 @@ into:
 ## Checking for mod updates without cutting a release
 
 ```sh
-cargo run -p downloader --bin mod-downloader -- --check
+./check-updates.sh
 ```
 
 Resolves the latest version of every configured mod/BepInEx (no downloads, no cache
