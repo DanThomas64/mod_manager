@@ -95,13 +95,19 @@ fn print_changelog(changelog: &str) {
 }
 
 /// Ask the user to confirm before making any changes. Pressing Enter with no
-/// input confirms (keeps the common case single-click); anything starting
-/// with 'n' cancels.
+/// input confirms (keeps the common case single-click); anything else
+/// starting with 'n' cancels. Stdin closing (0 bytes read, EOF) is treated
+/// as a cancel, not a confirm — an empty line from a real Enter keypress
+/// still reads as "\n" (1 byte), so this only catches a genuinely absent
+/// answer.
 fn confirm_install() -> Result<bool> {
     print!("Continue with install? [Y/n] ");
     io::stdout().flush().ok();
     let mut line = String::new();
-    io::stdin().read_line(&mut line).context("reading install confirmation")?;
+    let bytes_read = io::stdin().read_line(&mut line).context("reading install confirmation")?;
+    if bytes_read == 0 {
+        return Ok(false);
+    }
     let trimmed = line.trim().to_lowercase();
     Ok(trimmed.is_empty() || trimmed == "y" || trimmed == "yes")
 }
