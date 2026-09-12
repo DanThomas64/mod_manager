@@ -142,6 +142,12 @@ fn unzip_to(zip_path: &Path, dest: &Path) -> Result<()> {
             continue;
         };
         let out_path = dest.join(relative);
+        // Capture the zip's stored Unix permissions (e.g. the executable bit
+        // on start_game_bepinex.sh) before `entry` is consumed by the copy
+        // below — lost here, they'd stay lost through tar and into the
+        // installed game folder.
+        #[cfg(unix)]
+        let unix_mode = entry.unix_mode();
         if entry.is_dir() {
             std::fs::create_dir_all(&out_path)?;
         } else {
@@ -150,6 +156,11 @@ fn unzip_to(zip_path: &Path, dest: &Path) -> Result<()> {
             }
             let mut out_file = File::create(&out_path)?;
             std::io::copy(&mut entry, &mut out_file)?;
+            #[cfg(unix)]
+            if let Some(mode) = unix_mode {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&out_path, std::fs::Permissions::from_mode(mode))?;
+            }
         }
     }
     Ok(())

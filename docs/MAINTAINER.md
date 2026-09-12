@@ -25,18 +25,22 @@ into:
 ## Cutting a release (every time mods change)
 
 1. Edit `modpack.toml` to add/remove/change mods.
-2. Download the latest versions:
+2. From the repo root, run:
    ```sh
-   cargo run -p downloader --bin mod-downloader
+   ./deploy.sh
    ```
-3. Package a release (auto-versions, writes changelog + installers):
-   ```sh
-   cargo run -p packager --bin mod-packager
-   ```
-4. Share `releases/vX.Y.Z/installer-windows.exe` and `installer-linux` (and point players
+   This builds the installer shells (Linux always; Windows too if the mingw cross-compile
+   target is set up, otherwise it's skipped with a message), downloads the latest mod
+   versions, and packages a release — printing the release notes and file listing at the
+   end, or telling you there's nothing new to release if nothing changed.
+3. Share `releases/vX.Y.Z/installer-windows.exe` and `installer-linux` (and point players
    at that version's `INSTRUCTIONS.md`). For a dedicated server (e.g. AMP-managed), hand the
    host `releases/vX.Y.Z/server-plugins/` and `SERVER.md` — it's a plain, uncompressed copy of
    the mod plugin files to copy-paste over the server's `BepInEx/plugins/` folder.
+
+The individual steps `deploy.sh` runs (`cargo build -p installer-shell --release`,
+`cargo run -p downloader --bin mod-downloader`, `cargo run -p packager --bin mod-packager`)
+still work standalone if you want more control over any one of them.
 
 `mod-packager` auto-bumps the version by diffing against the previous release's lockfile:
 adding/removing a mod bumps minor, a version-only change bumps patch, no changes means

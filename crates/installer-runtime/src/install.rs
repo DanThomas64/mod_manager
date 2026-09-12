@@ -9,6 +9,33 @@ use std::path::Path;
 pub fn install_mods(source: &Path, dest_root: &Path) -> Result<()> {
     copy_dir_recursive(source, dest_root)
         .with_context(|| format!("copying {} into {}", source.display(), dest_root.display()))?;
+    ensure_launcher_scripts_executable(dest_root)?;
+    Ok(())
+}
+
+/// Belt-and-suspenders: explicitly mark BepInEx's Linux launcher scripts
+/// executable after install, regardless of what permission bits made it
+/// through packaging/extraction — Valheim on Linux won't start under
+/// BepInEx if `start_game_bepinex.sh` isn't runnable.
+#[cfg(unix)]
+fn ensure_launcher_scripts_executable(dest_root: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    for name in ["start_game_bepinex.sh", "start_server_bepinex.sh"] {
+        let path = dest_root.join(name);
+        if !path.exists() {
+            continue;
+        }
+        let mut perms = std::fs::metadata(&path)
+            .with_context(|| format!("reading permissions of {name}"))?
+            .permissions();
+        perms.set_mode(perms.mode() | 0o111);
+        std::fs::set_permissions(&path, perms).with_context(|| format!("marking {name} executable"))?;
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn ensure_launcher_scripts_executable(_dest_root: &Path) -> Result<()> {
     Ok(())
 }
 
