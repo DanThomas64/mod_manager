@@ -40,10 +40,10 @@ author = "Nextek"
 name = "SpeedyPaths"
 
 [[mods]]
-id = "xportal-patched"
+id = "xportal"
 source = "thunderstore"
-author = "TeamSmoochie"
-name = "XPortal_Patched"
+author = "SpikeHimself"
+name = "XPortal"
 
 [[mods]]
 id = "timed-torches-stay-lit"

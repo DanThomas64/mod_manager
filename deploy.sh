@@ -57,3 +57,12 @@ ls -la "$RELEASE_DIR"
 echo
 echo "--- Release notes ---"
 cat "$RELEASE_DIR/RELEASE_NOTES.md"
+
+if [[ -f "$REPO_ROOT/amp.toml" ]]; then
+    echo
+    echo "==> Deploying to AMP server"
+    cargo run -p server-deploy --bin deploy-amp -- --release-dir "$RELEASE_DIR"
+else
+    echo
+    echo "==> Skipping AMP server deploy: amp.toml not found (copy amp.toml.example to set it up)."
+fi

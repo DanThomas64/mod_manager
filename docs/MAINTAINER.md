@@ -22,6 +22,18 @@ into:
 - `target/release/installer-shell` (Linux)
 - `target/x86_64-pc-windows-gnu/release/installer-shell.exe` (Windows)
 
+## Checking for mod updates without cutting a release
+
+```sh
+cargo run -p downloader --bin mod-downloader -- --check
+```
+
+Resolves the latest version of every configured mod/BepInEx (no downloads, no cache
+writes, doesn't touch `modpack.lock.toml`) and diffs against the current lockfile. Prints
+"up to date" and exits 0 if nothing's changed, or lists what's newer and exits 1 — useful
+for a quick look, or wiring into a cron/CI check, before deciding whether `./deploy.sh` is
+worth running.
+
 ## Cutting a release (every time mods change)
 
 1. Edit `modpack.toml` to add/remove/change mods.
@@ -56,9 +68,39 @@ nothing to release. See `releases/CHANGELOG.md` for the running history.
   shared by both installer binaries.
 - `crates/installer-shell` — the trivial per-target binary `mod-packager` embeds payloads
   into.
+- `crates/server-deploy` (`deploy-amp`) — pushes `server-plugins/` to an AMP-managed
+  dedicated server over SFTP and triggers a restart via AMP's JSON API.
 - `cache/` — downloaded mod/BepInEx files, gitignored.
 - `releases/` — per-version lockfile, changelog, instructions, installer binaries, and
   `server-plugins/`.
+
+## AMP server deploy automation
+
+For a dedicated server managed through AMP (CubeCoders), `deploy-amp` pushes a release's
+`server-plugins/` folder over SFTP and then calls AMP's JSON API to restart the instance —
+automating the manual copy-paste step described in `SERVER.md`.
+
+**Setup**: copy `amp.toml.example` to `amp.toml` (gitignored — it holds credentials) and
+fill in your SFTP host/port/credentials, the instance's absolute `remote_plugins_path`, and
+AMP panel API credentials. If 2FA is enabled on the SFTP account, set `totp_secret` to its
+base32 secret (must decode to ≥128 bits — a normal authenticator-app secret is fine) and
+the current code is computed and appended to the password automatically each run.
+
+**Running it**: once `amp.toml` exists, `./deploy.sh` runs `deploy-amp` automatically as
+its last step (skipped with a message if `amp.toml` is absent). To run it standalone:
+```sh
+cargo run -p server-deploy --bin deploy-amp
+# or target a specific release instead of releases/latest.txt:
+cargo run -p server-deploy --bin deploy-amp -- --release-dir releases/v0.2.0
+```
+
+**Important**: `restart_method` in `amp.toml` (default `Core/Restart`) is a best guess —
+the exact API method/params for restarting an instance can vary by AMP version and how the
+instance is fronted (standalone vs behind ADS). Every running AMP installation
+self-documents its exact available API calls at `<base_url>/API` — check that against your
+own instance and adjust `restart_method` if the default doesn't work. If the restart call
+fails, the file upload has already succeeded by that point; `deploy-amp` says so and you
+can restart manually from the AMP panel.
 
 ## Backups and restore (what end users see)
 

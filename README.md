@@ -20,7 +20,10 @@ manual DLL-juggling for your players.
   symlinked mod setup survives a backup/restore round-trip intact). The installer can list
   and restore any previous backup on a later run. Nothing is ever deleted automatically.
 - **Exports a plain `server-plugins/` folder** alongside each release, for copy-pasting
-  onto a dedicated server (e.g. AMP-managed) without needing the client installer at all.
+  onto a dedicated server (e.g. AMP-managed) without needing the client installer at all —
+  or automates that push entirely for AMP servers (SFTP upload + API restart).
+- **Checks for mod updates** on demand (no download/package cycle) so you know at a glance
+  whether a new release is worth cutting.
 - Optimized for size: mod payloads are zstd-compressed and embedded directly in the
   installer binary, so the whole thing stays small enough to send over Discord/email.
 
@@ -41,6 +44,7 @@ cutting a release, repo layout.
 | `packager` (`mod-packager`) | Builds the compressed payload, embeds it into the installer shells, handles versioning/changelog/server export. |
 | `installer-runtime` | Extraction, Valheim path detection, backup/restore — shared logic linked into both installer binaries. |
 | `installer-shell` | The trivial per-target binary `mod-packager` embeds payloads into. |
+| `server-deploy` (`deploy-amp`) | Pushes `server-plugins/` to an AMP-managed dedicated server over SFTP and triggers a restart via AMP's API. |
 
 See [`docs/MAINTAINER.md`](docs/MAINTAINER.md) for the full breakdown, build commands, and
 backup/restore behavior in detail.

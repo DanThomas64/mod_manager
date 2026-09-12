@@ -1,0 +1,19 @@
+[package]
+name = "server-deploy"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "deploy-amp"
+path = "src/main.rs"
+
+[dependencies]
+common = { path = "../common" }
+serde.workspace = true
+toml.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+clap = { version = "4", features = ["derive"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls", "json"] }
+ssh2 = { version = "0.9", features = ["vendored-openssl"] }
+totp-rs = "5"

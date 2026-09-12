@@ -1,0 +1,946 @@
+<?xml version="1.0"?>
+<doc>
+    <assembly>
+        <name>ConditionalConfigSync</name>
+    </assembly>
+    <members>
+        <member name="T:ConditionalConfigSync.ConditionalConfigSync">
+            <summary>
+            Registers and synchronizes BepInEx config entries and runtime custom values for one mod.
+            </summary>
+            <remarks>
+            Create one instance per mod, normally with the mod GUID as <see cref="F:ConditionalConfigSync.ConditionalConfigSync.Name"/>. The standalone
+            ConditionalConfigSync BepInEx plugin must be installed and declared as a hard dependency.
+            <example>
+            <code>
+            [BepInDependency("_shudnal.ConditionalConfigSync", BepInDependency.DependencyFlags.HardDependency)]
+            public sealed class Plugin : BaseUnityPlugin
+            {
+                private static readonly ConditionalConfigSync sync = new("author.mod")
+                {
+                    DisplayName = "My Mod",
+                    CurrentVersion = "1.2.0",
+                    MinimumRequiredVersion = "1.2.0"
+                };
+            }
+            </code>
+            </example>
+            </remarks>
+        </member>
+        <member name="F:ConditionalConfigSync.ConditionalConfigSync.ProcessingServerUpdate">
+            <summary>
+            Indicates that at least one incoming synchronization package is currently being applied.
+            </summary>
+            <remarks>
+            This remains public for compatibility and diagnostics. Consumers should not build their own ServerSync-style
+            queues around it; ConditionalConfigSync already defers outgoing changes safely while processing or sending.
+            Domain-specific gates, such as waiting for texture-cache generation, may still be appropriate.
+            </remarks>
+        </member>
+        <member name="F:ConditionalConfigSync.ConditionalConfigSync.Name">
+            <summary>
+            Stable synchronization identifier, normally the owning mod's BepInEx GUID.
+            </summary>
+            <remarks>It is used in RPC names and policy keys, so it must be unique and must not change between releases.</remarks>
+        </member>
+        <member name="F:ConditionalConfigSync.ConditionalConfigSync.DisplayName">
+            <summary>Human-readable mod name used in logs. Falls back to <see cref="F:ConditionalConfigSync.ConditionalConfigSync.Name"/> when omitted.</summary>
+        </member>
+        <member name="F:ConditionalConfigSync.ConditionalConfigSync.CurrentVersion">
+            <summary>Current version of the owning mod, for example <c>1.4.2</c>.</summary>
+        </member>
+        <member name="F:ConditionalConfigSync.ConditionalConfigSync.MinimumRequiredVersion">
+            <summary>Oldest remote version accepted by this mod instance.</summary>
+            <remarks>Set it independently from <see cref="F:ConditionalConfigSync.ConditionalConfigSync.CurrentVersion"/> when compatible mod releases span several versions.</remarks>
+        </member>
+        <member name="P:ConditionalConfigSync.ConditionalConfigSync.ModRequired">
+            <summary>
+            Gets or sets whether the owning mod must be installed and compatible on the remote peer.
+            </summary>
+            <remarks>
+            Set this to <see langword="true"/> for mods that require matching code on both sides of the connection.
+            On a client, the connected server must have a compatible copy of the mod. On a server, every connecting
+            client must have a compatible copy. Missing or incompatible copies reject the connection during the normal
+            peer version handshake.
+            <para>
+            Leave this <see langword="false"/> only when the mod can operate correctly while absent from the remote side,
+            such as a genuinely client-only or otherwise optional integration. The local BepInEx hard dependency on
+            Conditional Config Sync is separate: it requires CCS on the same machine as the owning mod, not automatically
+            on the remote server or client. After successful client admission without a matching server handshake, the
+            optional instance returns to local source-of-truth ownership; this does not count as a completed server sync.
+            </para>
+            <para>Set this before a connection is established, preferably in the object initializer.</para>
+            </remarks>
+        </member>
+        <member name="F:ConditionalConfigSync.ConditionalConfigSync.AllowClientConfigUpdatesWhenUnlocked">
+            <summary>
+            Allows an unlocked non-admin client to send config and custom-value changes to the server.
+            </summary>
+            <remarks>
+            The default is <see langword="false"/> so server-controlled values remain server-originated unless a mod
+            explicitly opts into collaborative unlocked-client updates. Administrator clients are not affected by this option.
+            </remarks>
+        </member>
+        <member name="P:ConditionalConfigSync.ConditionalConfigSync.IsLocked">
+            <summary>
+            Gets the effective locking-setting state for the local process after applying the local admin exemption.
+            </summary>
+            <remarks>
+            The getter combines the locking config entry, an optional programmatic override, and the local admin exemption.
+            Assigning this property sets a programmatic override for the current process. A value of <see langword="false"/>
+            does not by itself grant ordinary clients write access; <see cref="F:ConditionalConfigSync.ConditionalConfigSync.AllowClientConfigUpdatesWhenUnlocked"/> must also
+            be enabled by the mod.
+            </remarks>
+        </member>
+        <member name="P:ConditionalConfigSync.ConditionalConfigSync.IsAdmin">
+            <summary>Gets whether the local side is the source of truth or has received an admin exemption from the server.</summary>
+        </member>
+        <member name="P:ConditionalConfigSync.ConditionalConfigSync.IsSourceOfTruth">
+            <summary>
+            Gets whether the local side currently owns and publishes synchronized values.
+            </summary>
+            <remarks>This is normally true on the server and in local worlds, and false on a connected client.</remarks>
+        </member>
+        <member name="P:ConditionalConfigSync.ConditionalConfigSync.InitialSyncDone">
+            <summary>Gets whether the initial server synchronization has completed for this instance.</summary>
+        </member>
+        <member name="E:ConditionalConfigSync.ConditionalConfigSync.SourceOfTruthChanged">
+            <summary>
+            Raised when this process changes between source-of-truth and client-replica roles.
+            </summary>
+            <remarks>The argument is <see langword="true"/> when the local side becomes the source of truth.</remarks>
+        </member>
+        <member name="E:ConditionalConfigSync.ConditionalConfigSync.InitialSyncCompleted">
+            <summary>
+            Raised once when the first complete server synchronization package has been applied successfully.
+            </summary>
+            <remarks>
+            Use this on clients when runtime systems must wait until all initial server-controlled config and custom values
+            are available. It is not raised for later partial updates. A new server connection can raise it again after
+            <see cref="E:ConditionalConfigSync.ConditionalConfigSync.ServerConnectionReset"/>.
+            </remarks>
+        </member>
+        <member name="E:ConditionalConfigSync.ConditionalConfigSync.ServerConnectionReset">
+            <summary>
+            Raised after a server connection ends and server-owned values have been replaced with their saved local values.
+            </summary>
+            <remarks>
+            Use this to discard caches derived from server settings or rebuild client-local state after disconnecting,
+            returning to the menu, or shutting down the current network session.
+            </remarks>
+        </member>
+        <member name="E:ConditionalConfigSync.ConditionalConfigSync.PolicyStateChanged">
+            <summary>
+            Raised when either the effective server-controlled state or hidden state changes for one config entry.
+            </summary>
+            <remarks>
+            This is the combined policy event. It is useful for tools that need one notification for any policy transition.
+            More focused consumers may subscribe to <see cref="E:ConditionalConfigSync.ConditionalConfigSync.ServerControlledChanged"/> or <see cref="E:ConditionalConfigSync.ConditionalConfigSync.HiddenStateChanged"/>.
+            </remarks>
+        </member>
+        <member name="E:ConditionalConfigSync.ConditionalConfigSync.ServerControlledChanged">
+            <summary>
+            Raised when a config entry becomes server-controlled or client-controlled.
+            </summary>
+            <remarks>
+            The first argument is the entry and the second is its new state. Use it when runtime behavior must switch
+            between the received server value and the client's retained local fallback.
+            </remarks>
+        </member>
+        <member name="E:ConditionalConfigSync.ConditionalConfigSync.HiddenStateChanged">
+            <summary>
+            Raised when a config entry becomes hidden or visible through effective server policy.
+            </summary>
+            <remarks>
+            The first argument is the entry and the second is its new hidden state. This can be used by custom config UIs
+            that do not rely on Configuration Manager's Browsable metadata.
+            </remarks>
+        </member>
+        <member name="E:ConditionalConfigSync.ConditionalConfigSync.LockStateChanged">
+            <summary>
+            Raised when the effective configuration lock is first evaluated and whenever it changes for this synchronization instance.
+            </summary>
+            <remarks>
+            The argument is the new effective lock state after applying admin exemption and any programmatic override.
+            The initial evaluation may therefore raise the event with <see langword="false"/>. Use it to refresh custom
+            configuration UIs or explain why a client can no longer publish changes.
+            </remarks>
+        </member>
+        <member name="E:ConditionalConfigSync.ConditionalConfigSync.SyncRejected">
+            <summary>
+            Raised when an incoming package or outgoing synchronization operation is rejected deliberately.
+            </summary>
+            <remarks>
+            Useful for diagnostics and telemetry implemented by the owning mod. The library itself performs no external
+            telemetry. The event is raised on the thread that detects the rejection; marshal to Unity's main thread before
+            touching Unity objects. Do not retry blindly because permission and size rejections are persistent.
+            </remarks>
+        </member>
+        <member name="M:ConditionalConfigSync.ConditionalConfigSync.#ctor(System.String)">
+            <summary>Creates a synchronization instance for one mod.</summary>
+            <param name="name">Stable unique identifier, normally the mod's BepInEx GUID.</param>
+            <exception cref="T:System.InvalidOperationException">
+            Thrown when the standalone ConditionalConfigSync plugin is not initialized or when an embedded copy is used.
+            </exception>
+        </member>
+        <member name="M:ConditionalConfigSync.ConditionalConfigSync.AddConfigEntry``1(BepInEx.Configuration.ConfigEntry{``0})">
+            <summary>Registers a config as policy-controlled and server-controlled by default.</summary>
+            <typeparam name="T">The config value type.</typeparam>
+            <param name="configEntry">The entry returned by <c>Config.Bind</c>.</param>
+            <returns>The existing or newly created typed synchronization wrapper.</returns>
+            <remarks>Equivalent to <c>AddConfigEntry(configEntry, ConfigSyncMode.Conditional, true)</c>.</remarks>
+        </member>
+        <member name="M:ConditionalConfigSync.ConditionalConfigSync.AddConfigEntry``1(BepInEx.Configuration.ConfigEntry{``0},System.Boolean)">
+            <summary>Registers a policy-controlled config with an explicit default ownership.</summary>
+            <param name="configEntry">The entry returned by <c>Config.Bind</c>.</param>
+            <param name="synchronizedSetting"><see langword="true"/> for server-controlled by default; otherwise client-controlled.</param>
+        </member>
+        <member name="M:ConditionalConfigSync.ConditionalConfigSync.AddConfigEntry``1(BepInEx.Configuration.ConfigEntry{``0},ConditionalConfigSync.ConfigSyncMode)">
+            <summary>Registers a config with an explicit synchronization mode.</summary>
+            <param name="configEntry">The entry returned by <c>Config.Bind</c>.</param>
+            <param name="syncMode">Whether ownership is fixed or may be overridden by policy.</param>
+            <remarks>
+            <see cref="F:ConditionalConfigSync.ConfigSyncMode.Conditional"/> is server-controlled by default in this overload. Choose
+            <see cref="F:ConditionalConfigSync.ConfigSyncMode.AlwaysServerControlled"/> for shared mechanics that require the same effective value
+            on the server and every client.
+            </remarks>
+        </member>
+        <member name="M:ConditionalConfigSync.ConditionalConfigSync.AddConfigEntry``1(BepInEx.Configuration.ConfigEntry{``0},ConditionalConfigSync.ConfigSyncMode,System.Boolean)">
+            <summary>Registers a config with a complete synchronization-mode definition.</summary>
+            <param name="configEntry">The entry returned by <c>Config.Bind</c>.</param>
+            <param name="syncMode">Whether ownership is fixed or may be overridden by policy.</param>
+            <param name="serverControlledByDefault">Default ownership used only for <see cref="F:ConditionalConfigSync.ConfigSyncMode.Conditional"/>.</param>
+            <remarks>
+            This overload configures the wrapper before registration, avoiding the temporary default state caused by assigning
+            <see cref="F:ConditionalConfigSync.OwnConfigEntryBase.SynchronizedConfig"/> after <c>AddConfigEntry</c> returns.
+            </remarks>
+        </member>
+        <member name="M:ConditionalConfigSync.ConditionalConfigSync.AddConfigEntry``1(BepInEx.Configuration.ConfigFile,System.String,System.String,``0,System.String,System.Boolean)">
+            <summary>Binds and registers a Conditional config in one call using a text description and explicit default ownership.</summary>
+        </member>
+        <member name="M:ConditionalConfigSync.ConditionalConfigSync.AddConfigEntry``1(BepInEx.Configuration.ConfigFile,System.String,System.String,``0,System.String,ConditionalConfigSync.ConfigSyncMode,System.Boolean)">
+            <summary>Binds and registers a config entry in one call using a text description.</summary>
+        </member>
+        <member name="M:ConditionalConfigSync.ConditionalConfigSync.AddConfigEntry``1(BepInEx.Configuration.ConfigFile,System.String,System.String,``0,BepInEx.Configuration.ConfigDescription,System.Boolean)">
+            <summary>Binds and registers a Conditional config in one call using a full BepInEx description and explicit default ownership.</summary>
+        </member>
+        <member name="M:ConditionalConfigSync.ConditionalConfigSync.AddConfigEntry``1(BepInEx.Configuration.ConfigFile,System.String,System.String,``0,BepInEx.Configuration.ConfigDescription,ConditionalConfigSync.ConfigSyncMode,System.Boolean)">
+            <summary>Binds and registers a config entry in one call using a full BepInEx description.</summary>
+        </member>
+        <member name="M:ConditionalConfigSync.ConditionalConfigSync.AddConfigEntry``1(BepInEx.Configuration.ConfigFile,BepInEx.Configuration.ConfigDefinition,``0,System.String,System.Boolean)">
+            <summary>Binds and registers a Conditional config in one call using a <see cref="T:BepInEx.Configuration.ConfigDefinition"/>, text description, and explicit default ownership.</summary>
+        </member>
+        <member name="M:ConditionalConfigSync.ConditionalConfigSync.AddConfigEntry``1(BepInEx.Configuration.ConfigFile,BepInEx.Configuration.ConfigDefinition,``0,System.String,ConditionalConfigSync.ConfigSyncMode,System.Boolean)">
+            <summary>Binds and registers a config entry in one call using a <see cref="T:BepInEx.Configuration.ConfigDefinition"/> and text description.</summary>
+        </member>
+        <member name="M:ConditionalConfigSync.ConditionalConfigSync.AddConfigEntry``1(BepInEx.Configuration.ConfigFile,BepInEx.Configuration.ConfigDefinition,``0,BepInEx.Configuration.ConfigDescription,System.Boolean)">
+            <summary>Binds and registers a Conditional config in one call using a <see cref="T:BepInEx.Configuration.ConfigDefinition"/> and explicit default ownership.</summary>
+        </member>
+        <member name="M:ConditionalConfigSync.ConditionalConfigSync.AddConfigEntry``1(BepInEx.Configuration.ConfigFile,BepInEx.Configuration.ConfigDefinition,``0,BepInEx.Configuration.ConfigDescription,ConditionalConfigSync.ConfigSyncMode,System.Boolean)">
+            <summary>Binds and registers a config entry in one call using a <see cref="T:BepInEx.Configuration.ConfigDefinition"/>.</summary>
+        </member>
+        <member name="M:ConditionalConfigSync.ConditionalConfigSync.AddLockingConfigEntry``1(BepInEx.Configuration.ConfigEntry{``0})">
+            <summary>Registers the single protected config entry that controls whether clients may edit synchronized settings.</summary>
+            <typeparam name="T">A convertible value type, commonly <see cref="T:System.Boolean"/> or an integer.</typeparam>
+            <param name="lockingConfig">The BepInEx entry used as the lock switch. Zero/false means unlocked.</param>
+            <returns>The synchronization wrapper for the locking entry.</returns>
+            <exception cref="T:System.Exception">Thrown when a second locking entry is registered for the same instance.</exception>
+            <remarks>
+            The locking entry is always server-controlled. A <c>ForceClientControlled</c> policy override is ignored,
+            and the server rejects attempts by non-admin clients to change this entry even while the rest of the
+            configuration is unlocked. This prevents a client from granting itself permission to edit server settings.
+            </remarks>
+            <example>
+            <code>
+            var lockEntry = Config.Bind("General", "Lock Configuration", true, "Server controls settings");
+            configSync.AddLockingConfigEntry(lockEntry);
+            </code>
+            </example>
+        </member>
+        <member name="M:ConditionalConfigSync.ConditionalConfigSync.ConfigData``1(BepInEx.Configuration.ConfigEntry{``0})">
+            <summary>Returns the synchronization wrapper attached to a registered BepInEx config entry.</summary>
+            <typeparam name="T">The config value type.</typeparam>
+            <param name="config">The BepInEx config entry to inspect.</param>
+            <returns>The wrapper, or <see langword="null"/> when the entry was not registered.</returns>
+        </member>
+        <member name="T:ConditionalConfigSync.ConditionalConfigSync.ConditionalConfigSyncDebugLevel">
+            <summary>Controls the amount of diagnostic information written by ConditionalConfigSync.</summary>
+        </member>
+        <member name="F:ConditionalConfigSync.ConditionalConfigSync.ConditionalConfigSyncDebugLevel.Basic">
+            <summary>Lifecycle, registration, initial sync, and important queue activity.</summary>
+        </member>
+        <member name="F:ConditionalConfigSync.ConditionalConfigSync.ConditionalConfigSyncDebugLevel.Verbose">
+            <summary>Adds package preparation, compression, policy application, and value-flow details.</summary>
+        </member>
+        <member name="F:ConditionalConfigSync.ConditionalConfigSync.ConditionalConfigSyncDebugLevel.Trace">
+            <summary>Adds per-value and per-fragment tracing. Intended for short diagnostic sessions.</summary>
+        </member>
+        <member name="F:ConditionalConfigSync.ConditionalConfigSync.DebugLoggingEnabled">
+            <summary>Enables runtime debug logging programmatically for the shared standalone plugin.</summary>
+        </member>
+        <member name="F:ConditionalConfigSync.ConditionalConfigSync.DebugLoggingLevel">
+            <summary>Selects the runtime debug verbosity used when <see cref="F:ConditionalConfigSync.ConditionalConfigSync.DebugLoggingEnabled"/> is enabled.</summary>
+        </member>
+        <member name="F:ConditionalConfigSync.ConditionalConfigSync.DebugLoggingFilter">
+            <summary>
+            Optional case-insensitive filter matched against a synchronization name or display name. Empty means all mods.
+            </summary>
+        </member>
+        <member name="M:ConditionalConfigSync.ConditionalConfigSync.RequestFullSync">
+            <summary>
+            Requests a complete synchronization package from the currently connected server.
+            </summary>
+            <returns>
+            <see langword="true"/> when the request was dispatched; otherwise <see langword="false"/> when no remote server
+            is connected.
+            </returns>
+            <remarks>
+            ConditionalConfigSync invokes this automatically when a config or custom value is registered after the initial
+            client synchronization. Mods may also call it after rebuilding a dynamic registration set. The request is ignored
+            on the server and in local worlds. Resynchronization does not repeat the completed peer admission or mod version
+            check, so mods that require connection rejection must create their ConfigSync before connecting.
+            </remarks>
+        </member>
+        <member name="M:ConditionalConfigSync.ConditionalConfigSync.ShutdownRuntime">
+            <summary>
+            Releases process-wide watchers, Harmony patches, queued work, and network-session state.
+            </summary>
+            <remarks>
+            Called by the standalone BepInEx bootstrap during plugin destruction. Dependent mods normally never call this.
+            </remarks>
+        </member>
+        <member name="T:ConditionalConfigSync.ConfigSync">
+            <summary>
+            Compatibility name for code originally written against ServerSync's <c>ConfigSync</c> class.
+            </summary>
+            <remarks>
+            It has the same behavior as <see cref="T:ConditionalConfigSync.ConditionalConfigSync"/>. New code may use either name; keeping this alias
+            allows existing declarations to migrate by changing only the namespace import.
+            </remarks>
+        </member>
+        <member name="M:ConditionalConfigSync.ConfigSync.#ctor(System.String)">
+            <summary>Creates a compatibility synchronization instance for one mod.</summary>
+            <param name="name">Stable unique identifier, normally the mod's BepInEx GUID.</param>
+        </member>
+        <member name="T:ConditionalConfigSync.ConfigSyncMode">
+            <summary>
+            Defines how ownership and synchronization of a registered configuration entry are determined.
+            </summary>
+            <remarks>
+            Choose a fixed mode when a setting must always belong to the server or the local client. Use
+            <see cref="F:ConditionalConfigSync.ConfigSyncMode.Conditional"/> only when server policy may safely change the effective owner at runtime.
+            </remarks>
+        </member>
+        <member name="F:ConditionalConfigSync.ConfigSyncMode.AlwaysServerControlled">
+            <summary>
+            The server always owns and synchronizes this setting. SyncPolicy entries are ignored.
+            </summary>
+            <remarks>
+            Use this mode for settings that control shared mod mechanics or synchronized state whose behavior must remain
+            consistent on the server and every client. Examples include gameplay rules, world-state generation, shared event
+            behavior, network-visible calculations, and feature switches that would malfunction when peers disagree.
+            </remarks>
+        </member>
+        <member name="F:ConditionalConfigSync.ConfigSyncMode.Conditional">
+            <summary>SyncPolicy may override the mod-defined default ownership.</summary>
+        </member>
+        <member name="F:ConditionalConfigSync.ConfigSyncMode.AlwaysClientControlled">
+            <summary>Each client always owns this setting. SyncPolicy entries are ignored.</summary>
+        </member>
+        <member name="T:ConditionalConfigSync.ConfigSyncOverride">
+            <summary>
+            Describes an effective ownership override applied to a <see cref="F:ConditionalConfigSync.ConfigSyncMode.Conditional"/> setting.
+            </summary>
+            <remarks>
+            This value reports only overrides that change the mod-defined default ownership. A matching policy rule that keeps
+            the same ownership is represented by <see cref="F:ConditionalConfigSync.ConfigSyncOverride.None"/> because it has no effect on runtime behavior.
+            </remarks>
+        </member>
+        <member name="F:ConditionalConfigSync.ConfigSyncOverride.None">
+            <summary>The effective ownership matches the mod-defined default.</summary>
+        </member>
+        <member name="F:ConditionalConfigSync.ConfigSyncOverride.ForceServerControlled">
+            <summary>The setting is server-controlled despite being client-controlled by default.</summary>
+        </member>
+        <member name="F:ConditionalConfigSync.ConfigSyncOverride.ForceClientControlled">
+            <summary>The setting is client-controlled despite being server-controlled by default.</summary>
+        </member>
+        <member name="T:ConditionalConfigSync.ConfigSyncPolicyControlState">
+            <summary>
+            Describes whether and why the current process can change a Conditional setting's server ownership policy.
+            </summary>
+        </member>
+        <member name="F:ConditionalConfigSync.ConfigSyncPolicyControlState.Fixed">
+            <summary>The setting has a fixed ownership mode and cannot be changed by server policy.</summary>
+        </member>
+        <member name="F:ConditionalConfigSync.ConfigSyncPolicyControlState.Available">
+            <summary>The current process may request or apply a policy change.</summary>
+        </member>
+        <member name="F:ConditionalConfigSync.ConfigSyncPolicyControlState.RequiresCompatibleServerSession">
+            <summary>A compatible active server session is required before policy can be changed.</summary>
+        </member>
+        <member name="F:ConditionalConfigSync.ConfigSyncPolicyControlState.RequiresAdministratorAccess">
+            <summary>The server session is active, but the current player lacks administrator access.</summary>
+        </member>
+        <member name="T:ConditionalConfigSync.CustomSyncedValueBase">
+            <summary>
+            Non-generic base for runtime values synchronized independently from BepInEx config files.
+            </summary>
+            <remarks>
+            Use <see cref="T:ConditionalConfigSync.CustomSyncedValue`1"/> for state and <see cref="T:ConditionalConfigSync.SequencedCustomSyncedValue`1"/> for event-like
+            messages where repeated equal assignments must be preserved.
+            </remarks>
+        </member>
+        <member name="E:ConditionalConfigSync.CustomSyncedValueBase.ValueChanged">
+            <summary>
+            Raised after the active value is applied or explicitly re-notified.
+            </summary>
+            <remarks>
+            ConditionalConfigSync also listens to this event to publish changes. Avoid assigning the same value recursively
+            from the handler. Use <see cref="M:ConditionalConfigSync.CustomSyncedValueBase.NotifyChanged"/> after mutating a reference-type value in place.
+            Subscriber exceptions are logged individually and do not prevent later subscribers from running.
+            </remarks>
+        </member>
+        <member name="M:ConditionalConfigSync.CustomSyncedValueBase.Update">
+            <summary>
+            Compatibility alias for <see cref="M:ConditionalConfigSync.CustomSyncedValueBase.NotifyChanged"/>. Re-publishes and re-processes the current active value.
+            </summary>
+        </member>
+        <member name="M:ConditionalConfigSync.CustomSyncedValueBase.NotifyChanged">
+            <summary>
+            Explicitly notifies subscribers that the current value must be processed again.
+            </summary>
+            <remarks>
+            This is useful after mutating an object in place, because assigning the same object reference can be suppressed
+            by the equality comparer. Call it only from a side that is allowed to publish the current value.
+            <example>
+            <code>
+            syncedList.Value.Add(newItem);
+            syncedList.NotifyChanged();
+            </code>
+            </example>
+            </remarks>
+        </member>
+        <member name="F:ConditionalConfigSync.CustomSyncedValueBase.LocalBaseValue">
+            <summary>
+            The local fallback retained by a client while a server value is active.
+            </summary>
+            <remarks>Prefer the typed assignment methods instead of modifying this field directly.</remarks>
+        </member>
+        <member name="F:ConditionalConfigSync.CustomSyncedValueBase.Identifier">
+            <summary>
+            Unique identifier of this custom value within its owning synchronization instance.
+            </summary>
+        </member>
+        <member name="F:ConditionalConfigSync.CustomSyncedValueBase.Type">
+            <summary>
+            Runtime type used for package serialization and validation.
+            </summary>
+        </member>
+        <member name="M:ConditionalConfigSync.CustomSyncedValueBase.InitializeBoxedValue(System.Object)">
+            <summary>Initializes construction-time state without notifying subscribers or publishing it.</summary>
+            <param name="value">The initial local value.</param>
+            <remarks>
+            Use only from derived constructors, including constructors in consumer assemblies. This path also establishes
+            the initial local fallback on a replica. Use it for every construction-time assignment when initialization has
+            several steps; use <see cref="M:ConditionalConfigSync.CustomSyncedValueBase.AssignBoxedValue(System.Object,System.Boolean)"/> or the typed assignment methods for subsequent runtime changes.
+            Late registration still supplies the initial server publication or requests the authoritative client snapshot.
+            </remarks>
+        </member>
+        <member name="P:ConditionalConfigSync.CustomSyncedValueBase.BoxedValue">
+            <summary>
+            Gets or sets the active value through the non-generic API.
+            </summary>
+            <remarks>
+            Prefer <c>Value</c> and the typed <c>AssignLocalValue...</c> methods. Direct assignment here does not provide
+            the local-fallback semantics that a connected client usually needs. Equal assignments are suppressed for a
+            normal custom value and preserved for a sequenced custom value.
+            </remarks>
+        </member>
+        <member name="M:ConditionalConfigSync.CustomSyncedValueBase.AssignBoxedValue(System.Object,System.Boolean)">
+            <summary>
+            Assigns a boxed active value and reports whether an event was raised.
+            </summary>
+            <param name="value">The candidate active value.</param>
+            <param name="notifyIfEqual">When true, notify even if the configured comparer reports equality.</param>
+            <returns>True when the value was accepted and <see cref="E:ConditionalConfigSync.CustomSyncedValueBase.ValueChanged"/> was raised; false for initialization.</returns>
+            <remarks>
+            Intended for custom derived value types. The first assignment initializes silently, so existing subclasses
+            that initialize through this method do not publish their constructor argument. For multi-step constructor
+            initialization, use <see cref="M:ConditionalConfigSync.CustomSyncedValueBase.InitializeBoxedValue(System.Object)"/> for each step. Most mods should use typed public assignments.
+            </remarks>
+        </member>
+        <member name="F:ConditionalConfigSync.CustomSyncedValueBase.localIsOwner">
+            <summary>
+            True when the local side currently owns and may publish this value.
+            </summary>
+        </member>
+        <member name="F:ConditionalConfigSync.CustomSyncedValueBase.Priority">
+            <summary>
+            Ordering priority used when several custom values are batched or flushed together. Higher values come first.
+            </summary>
+            <remarks>
+            Values with the same priority keep their registration order. Priorities are useful when one value must be
+            processed before another, for example loading environment definitions before selecting the current environment.
+            They do not turn a state value into an event queue; use <see cref="T:ConditionalConfigSync.SequencedCustomSyncedValue`1"/> for that.
+            </remarks>
+        </member>
+        <member name="M:ConditionalConfigSync.CustomSyncedValueBase.#ctor(ConditionalConfigSync.ConditionalConfigSync,System.String,System.Type,System.Int32)">
+            <summary>Initializes a custom synchronized value base.</summary>
+            <param name="configSync">The synchronization instance that owns the value.</param>
+            <param name="identifier">Unique stable identifier within the synchronization instance.</param>
+            <param name="type">Runtime serialization type.</param>
+            <param name="priority">Batch ordering priority. Higher values come first.</param>
+        </member>
+        <member name="T:ConditionalConfigSync.CustomSyncedValue`1">
+            <summary>
+            Synchronizes a runtime state value and suppresses assignments considered equal by its comparer.
+            </summary>
+            <typeparam name="T">The synchronized value type.</typeparam>
+            <remarks>
+            Use this type for current state such as JSON text, selected modes, generated settings, or cached metadata. If the
+            same state is assigned again, subscribers and the network are not notified unless an explicit notify method is used.
+            Handlers attached after construction do not receive the constructor's initial assignment. After subscribing, use
+            <see cref="M:ConditionalConfigSync.CustomSyncedValue`1.AssignLocalValueAndNotify(`0)"/> when derived runtime data must be built at least once.
+            Custom values use Valheim package serialization. Complex domain types can implement <c>ISerializableParameter</c>
+            when the built-in primitive, enum, collection, and value-type paths are not sufficient.
+            <example>
+            <code>
+            var mapData = new CustomSyncedValue&lt;string&gt;(configSync, "Map data", "");
+            mapData.ValueChanged += () =&gt; ApplyMapData(mapData.Value);
+            mapData.AssignLocalValueIfChanged(ReadMapData());
+            </code>
+            </example>
+            </remarks>
+        </member>
+        <member name="P:ConditionalConfigSync.CustomSyncedValue`1.Value">
+            <summary>
+            Gets or sets the currently active synchronized value.
+            </summary>
+            <remarks>
+            For a normal custom value, assigning an equal value is ignored. Prefer the <c>AssignLocalValue...</c> methods
+            when code can run on a connected client, because they preserve the client's local fallback.
+            </remarks>
+        </member>
+        <member name="M:ConditionalConfigSync.CustomSyncedValue`1.#ctor(ConditionalConfigSync.ConditionalConfigSync,System.String,`0,System.Int32,System.Collections.Generic.IEqualityComparer{`0})">
+            <summary>
+            Creates a state-like custom synchronized value.
+            </summary>
+            <param name="configSync">The synchronization instance that owns this value.</param>
+            <param name="identifier">A unique stable name within <paramref name="configSync"/>.</param>
+            <param name="value">Initial local value.</param>
+            <param name="priority">Batch ordering priority. Higher values come first.</param>
+            <param name="valueComparer">
+            Optional equality comparer. It controls duplicate suppression for local assignments and received values. Supply a
+            content comparer for arrays, lists, dictionaries, or domain objects when reference equality is not sufficient.
+            </param>
+            <example>
+            <code>
+            var settings = new CustomSyncedValue&lt;Dictionary&lt;int, string&gt;&gt;(
+                configSync, "Season settings", new Dictionary&lt;int, string&gt;(),
+                priority: 100, valueComparer: DictionaryContentComparer.Instance);
+            </code>
+            </example>
+        </member>
+        <member name="M:ConditionalConfigSync.CustomSyncedValue`1.AssignLocalValue(`0)">
+            <summary>
+            Assigns the local value using the default semantics of this custom-value type.
+            </summary>
+            <param name="value">The new local value.</param>
+            <remarks>
+            For <see cref="T:ConditionalConfigSync.CustomSyncedValue`1"/>, equal values are suppressed. For
+            <see cref="T:ConditionalConfigSync.SequencedCustomSyncedValue`1"/>, every assignment is preserved, including repeated equal values.
+            On a client that is not the source of truth, this changes only the local fallback and does not notify handlers.
+            </remarks>
+        </member>
+        <member name="M:ConditionalConfigSync.CustomSyncedValue`1.AssignLocalValueIfChanged(`0)">
+            <summary>
+            Assigns the local value only when the configured comparer reports a real change.
+            </summary>
+            <param name="value">The candidate local value.</param>
+            <remarks>
+            This method suppresses equal values for both normal and sequenced custom values. Use it for polling, file
+            watchers, or repeated recalculation where only changed state should trigger handlers and network traffic.
+            <example>
+            <code>
+            settingsJson.AssignLocalValueIfChanged(ReadSettings());
+            </code>
+            </example>
+            </remarks>
+        </member>
+        <member name="M:ConditionalConfigSync.CustomSyncedValue`1.AssignLocalValueAndNotify(`0)">
+             <summary>
+             Assigns the local value and forces one notification even when the value compares equal.
+             </summary>
+             <param name="value">The value to assign and process.</param>
+             <remarks>
+             Use this for initial processing, explicit reload commands, or rebuilding derived data when handlers must run at
+             least once. On a client that is not the source of truth, only the local fallback is updated; the active server
+             value is not re-notified.
+             <example>
+             <code>
+             // Initial load must build runtime objects even if the text equals the default value.
+             settingsJson.AssignLocalValueAndNotify(ReadSettings());
+            
+             // Later reloads should run only after a real change.
+             settingsJson.AssignLocalValueIfChanged(ReadSettings());
+             </code>
+             </example>
+             </remarks>
+        </member>
+        <member name="T:ConditionalConfigSync.SequencedCustomSyncedValue`1">
+             <summary>
+             Synchronizes an event-like sequence where every assignment must be delivered in order, including equal values.
+             </summary>
+             <typeparam name="T">The event payload type.</typeparam>
+             <remarks>
+             A normal <see cref="T:ConditionalConfigSync.CustomSyncedValue`1"/> represents the latest state and may coalesce pending updates. A sequenced
+             value snapshots every deferred assignment into its own package. Use it for commands, pulses, combat events, or any
+             message where <c>A, A</c> means two events rather than one state. Do not use it merely to force initial state processing;
+             use <see cref="M:ConditionalConfigSync.CustomSyncedValue`1.AssignLocalValueAndNotify(`0)"/> for that.
+             <example>
+             <code>
+             var playEffect = new SequencedCustomSyncedValue&lt;int&gt;(configSync, "Play effect");
+             playEffect.ValueChanged += () =&gt; SpawnEffect(playEffect.Value);
+            
+             playEffect.AssignLocalValue(7);
+             playEffect.AssignLocalValue(7); // delivered as a second event
+            
+             // This explicit method still suppresses a duplicate when that is desired.
+             playEffect.AssignLocalValueIfChanged(7);
+             </code>
+             </example>
+             </remarks>
+        </member>
+        <member name="M:ConditionalConfigSync.SequencedCustomSyncedValue`1.#ctor(ConditionalConfigSync.ConditionalConfigSync,System.String,`0,System.Int32,System.Collections.Generic.IEqualityComparer{`0})">
+            <summary>
+            Creates an event-like custom synchronized value that preserves every assignment.
+            </summary>
+            <param name="configSync">The synchronization instance that owns the value.</param>
+            <param name="identifier">A unique stable name within the synchronization instance.</param>
+            <param name="value">Initial local payload value.</param>
+            <param name="priority">Batch ordering priority. Higher values come first.</param>
+            <param name="valueComparer">
+            Optional comparer used only by explicit change-checking operations such as
+            <see cref="M:ConditionalConfigSync.CustomSyncedValue`1.AssignLocalValueIfChanged(`0)"/>. Normal sequenced assignment does not suppress equality.
+            </param>
+        </member>
+        <member name="T:ConditionalConfigSync.GameReflection">
+            <summary>
+            Cached reflection bridge for Valheim runtime APIs. The development references may be publicized,
+            while the actual game assembly can keep the same members non-public. All game member invocation
+            is centralized here so CLR accessibility changes do not surface as MethodAccessException in callers.
+            </summary>
+        </member>
+        <member name="M:ConditionalConfigSync.GameReflection.ValidateBindings">
+            <summary>Forces eager validation of all cached Valheim reflection bindings.</summary>
+        </member>
+        <member name="T:ConditionalConfigSync.PluginInfoCCS">
+            <summary>
+            Shared package metadata used by the BepInEx bootstrap, both assemblies, and the publishing pipeline.
+            Change <see cref="F:ConditionalConfigSync.PluginInfoCCS.PluginVersion"/> here when preparing a new release.
+            </summary>
+        </member>
+        <member name="F:ConditionalConfigSync.PluginInfoCCS.PluginGuid">
+            <summary>BepInEx plugin identifier and Harmony owner ID.</summary>
+        </member>
+        <member name="F:ConditionalConfigSync.PluginInfoCCS.PluginName">
+            <summary>Human-readable plugin name shown by BepInEx and package managers.</summary>
+        </member>
+        <member name="F:ConditionalConfigSync.PluginInfoCCS.RepositoryUrl">
+            <summary>Canonical source repository and release page.</summary>
+        </member>
+        <member name="F:ConditionalConfigSync.PluginInfoCCS.PluginVersion">
+            <summary>
+            Package and assembly version. Update this single value for a new release.
+            The Thunderstore manifest reads the compiled plugin assembly version during packaging.
+            </summary>
+        </member>
+        <member name="F:ConditionalConfigSync.PluginInfoCCS.ProtocolVersion">
+            <summary>
+            Current ConditionalConfigSync wire protocol version.
+            Increase this value only when the network format becomes incompatible.
+            </summary>
+        </member>
+        <member name="T:ConditionalConfigSync.PluginSelfInfo">
+            <summary>
+            Shared package metadata used by the BepInEx bootstrap, both assemblies, and the publishing pipeline.
+            Change <see cref="F:ConditionalConfigSync.PluginSelfInfo.PluginVersion"/> here when preparing a new release.
+            </summary>
+        </member>
+        <member name="F:ConditionalConfigSync.PluginSelfInfo.PluginGuid">
+            <summary>BepInEx plugin identifier and Harmony owner ID.</summary>
+        </member>
+        <member name="F:ConditionalConfigSync.PluginSelfInfo.PluginName">
+            <summary>Human-readable plugin name shown by BepInEx and package managers.</summary>
+        </member>
+        <member name="F:ConditionalConfigSync.PluginSelfInfo.RepositoryUrl">
+            <summary>Canonical source repository and release page.</summary>
+        </member>
+        <member name="F:ConditionalConfigSync.PluginSelfInfo.PluginVersion">
+            <summary>
+            Package and assembly version. Update this single value for a new release.
+            The Thunderstore manifest reads the compiled plugin assembly version during packaging.
+            </summary>
+        </member>
+        <member name="F:ConditionalConfigSync.PluginSelfInfo.ProtocolVersion">
+            <summary>
+            Current ConditionalConfigSync wire protocol version.
+            Increase this value only when the network format becomes incompatible.
+            </summary>
+        </member>
+        <member name="T:ConditionalConfigSync.OwnConfigEntryBase">
+            <summary>
+            Common metadata attached to every BepInEx config entry registered with ConditionalConfigSync.
+            </summary>
+            <remarks>
+            Most mods use the typed <see cref="T:ConditionalConfigSync.SyncedConfigEntry`1"/> returned by
+            <see cref="M:ConditionalConfigSync.ConditionalConfigSync.AddConfigEntry``1(BepInEx.Configuration.ConfigEntry{``0})"/> instead of working with this base class directly.
+            </remarks>
+        </member>
+        <member name="F:ConditionalConfigSync.OwnConfigEntryBase.LocalBaseValue">
+            <summary>
+            The client's original local value while a server-controlled value is active.
+            </summary>
+            <remarks>
+            This field is public for compatibility with ServerSync integrations. New code should normally use
+            <c>AssignLocalValue</c> on the typed wrapper instead of modifying this field directly.
+            </remarks>
+        </member>
+        <member name="P:ConditionalConfigSync.OwnConfigEntryBase.IsServerControlled">
+            <summary>
+            Gets whether this setting is currently controlled and synchronized by the server.
+            </summary>
+            <remarks>
+            For <see cref="F:ConditionalConfigSync.ConfigSyncMode.Conditional"/> settings this value reflects the effective server policy after it
+            has been initialized. Before that point it returns the normalized mod-defined default, including compatibility
+            code that assigns <see cref="F:ConditionalConfigSync.OwnConfigEntryBase.SynchronizedConfig"/> after registration.
+            </remarks>
+        </member>
+        <member name="P:ConditionalConfigSync.OwnConfigEntryBase.IsHidden">
+            <summary>Gets whether effective server policy currently hides this setting from compatible config UIs.</summary>
+        </member>
+        <member name="P:ConditionalConfigSync.OwnConfigEntryBase.IsPolicyStateInitialized">
+            <summary>
+            Gets whether the effective policy state has been initialized for the current server session.
+            </summary>
+            <remarks>
+            This is normally true on a running server after policy loading and on a connected client after receiving config
+            state from the server. It returns to false when the server connection is reset and local defaults are restored.
+            </remarks>
+        </member>
+        <member name="P:ConditionalConfigSync.OwnConfigEntryBase.BaseConfig">
+            <summary>
+            Gets the underlying BepInEx config entry.
+            </summary>
+        </member>
+        <member name="F:ConditionalConfigSync.OwnConfigEntryBase.SyncMode">
+            <summary>
+            Defines how policy is allowed to control this setting. The default is <see cref="F:ConditionalConfigSync.ConfigSyncMode.Conditional"/>.
+            </summary>
+            <remarks>
+            Prefer passing the mode directly to an <c>AddConfigEntry</c> overload so the wrapper is fully configured before
+            registration. This public field remains available for source compatibility with existing integration helpers.
+            </remarks>
+        </member>
+        <member name="F:ConditionalConfigSync.OwnConfigEntryBase.SynchronizedConfig">
+            <summary>
+            Defines the default ownership used when <see cref="F:ConditionalConfigSync.OwnConfigEntryBase.SyncMode"/> is <see cref="F:ConditionalConfigSync.ConfigSyncMode.Conditional"/>.
+            </summary>
+            <remarks>
+            <see langword="true"/> means server-controlled by default; <see langword="false"/> means client-controlled by
+            default. Prefer the <c>AddConfigEntry</c> overloads instead of assigning this field after registration.
+            </remarks>
+        </member>
+        <member name="P:ConditionalConfigSync.OwnConfigEntryBase.ServerControlledByDefault">
+            <summary>
+            Gets the normalized ownership defined by the mod before server policy is applied.
+            </summary>
+            <remarks>
+            Fixed modes always return their fixed ownership. Conditional mode returns <see cref="F:ConditionalConfigSync.OwnConfigEntryBase.SynchronizedConfig"/>.
+            </remarks>
+        </member>
+        <member name="P:ConditionalConfigSync.OwnConfigEntryBase.IsSynchronizationOverridden">
+            <summary>
+            Gets whether effective policy changes the ownership defined by the mod.
+            </summary>
+            <remarks>
+            Only <see cref="F:ConditionalConfigSync.ConfigSyncMode.Conditional"/> settings can be overridden. A policy rule that resolves to the same
+            ownership as the mod default is not reported as an override because it does not change runtime behavior.
+            </remarks>
+        </member>
+        <member name="P:ConditionalConfigSync.OwnConfigEntryBase.EffectiveOverride">
+            <summary>Gets the effective policy override that changes this setting's ownership.</summary>
+        </member>
+        <member name="P:ConditionalConfigSync.OwnConfigEntryBase.SynchronizationPolicyControlState">
+            <summary>Gets the current availability state for changing this setting's server policy.</summary>
+            <remarks>
+            The state distinguishes fixed settings, unavailable server sessions, missing administrator access, and an
+            available policy control operation.
+            </remarks>
+        </member>
+        <member name="P:ConditionalConfigSync.OwnConfigEntryBase.CanChangeSynchronizationPolicy">
+            <summary>Gets whether the current process may change this Conditional setting's server policy.</summary>
+            <remarks>
+            This is a convenience projection of <see cref="P:ConditionalConfigSync.OwnConfigEntryBase.SynchronizationPolicyControlState"/>. It returns
+            <see langword="true"/> only when the state is <see cref="F:ConditionalConfigSync.ConfigSyncPolicyControlState.Available"/>.
+            </remarks>
+        </member>
+        <member name="M:ConditionalConfigSync.OwnConfigEntryBase.ToggleSynchronizationPolicy">
+            <summary>Requests the opposite effective ownership policy for this Conditional setting.</summary>
+            <returns><see langword="true"/> when the change was applied locally or dispatched to the server.</returns>
+            <remarks>
+            The server persists the resulting exact-setting rule in <c>ConditionalConfigSync.SyncPolicy.cfg</c>. When the
+            requested ownership is already provided by the mod default or a section rule, an unnecessary exact rule is removed.
+            </remarks>
+        </member>
+        <member name="T:ConditionalConfigSync.SyncedConfigEntry`1">
+            <summary>
+            Typed synchronization wrapper for a regular BepInEx <see cref="T:BepInEx.Configuration.ConfigEntry`1"/>.
+            </summary>
+            <typeparam name="T">The config value type.</typeparam>
+            <remarks>
+            The wrapper keeps the client's local value separate while a server value is active. When the client disconnects,
+            or when policy changes the entry back to client-controlled, the local value is restored.
+            </remarks>
+        </member>
+        <member name="M:ConditionalConfigSync.SyncedConfigEntry`1.#ctor(BepInEx.Configuration.ConfigEntry{`0})">
+            <summary>Creates a synchronization wrapper for the supplied BepInEx config entry.</summary>
+            <param name="sourceConfig">The BepInEx config entry being registered.</param>
+        </member>
+        <member name="P:ConditionalConfigSync.SyncedConfigEntry`1.BaseConfig">
+            <inheritdoc/>
+        </member>
+        <member name="F:ConditionalConfigSync.SyncedConfigEntry`1.SourceConfig">
+            <summary>
+            The original typed BepInEx config entry.
+            </summary>
+        </member>
+        <member name="P:ConditionalConfigSync.SyncedConfigEntry`1.Value">
+            <summary>
+            Gets or sets the currently active value of the underlying config entry.
+            </summary>
+            <remarks>
+            On a connected client this may be the server value rather than the value stored in the client's cfg file.
+            Use <see cref="M:ConditionalConfigSync.SyncedConfigEntry`1.AssignLocalValue(`0)"/> when changing the client's own fallback value.
+            </remarks>
+        </member>
+        <member name="M:ConditionalConfigSync.SyncedConfigEntry`1.AssignLocalValue(`0)">
+            <summary>
+            Assigns the value owned by the local side without overwriting an active server value on a client.
+            </summary>
+            <param name="value">The new local value.</param>
+            <remarks>
+            On the server or in a local world this updates the active config entry. On a connected client controlled by
+            the server it updates only the saved local fallback, which is restored later. Changed fallback values honor
+            the config file's SaveOnConfigSet option without notifying active-value subscribers or publishing to the server.
+            BepInEx itself suppresses <c>SettingChanged</c> when the typed value is equal.
+            </remarks>
+        </member>
+        <member name="T:ConditionalConfigSync.PolicyStateChangedEventArgs">
+            <summary>
+            Describes one effective policy-state transition for a registered config entry.
+            </summary>
+            <remarks>
+            This event data is raised on the Unity main thread. It is useful when a mod must rebuild runtime state after an
+            administrator changes SyncPolicy or HiddenConfigs while the server is running, or when a client receives a new
+            effective state from the server.
+            </remarks>
+        </member>
+        <member name="P:ConditionalConfigSync.PolicyStateChangedEventArgs.Config">
+            <summary>The config entry whose effective policy state changed.</summary>
+        </member>
+        <member name="P:ConditionalConfigSync.PolicyStateChangedEventArgs.OldServerControlled">
+            <summary>The previous effective server-controlled state.</summary>
+        </member>
+        <member name="P:ConditionalConfigSync.PolicyStateChangedEventArgs.NewServerControlled">
+            <summary>The new effective server-controlled state.</summary>
+        </member>
+        <member name="P:ConditionalConfigSync.PolicyStateChangedEventArgs.OldHidden">
+            <summary>The previous effective hidden state.</summary>
+        </member>
+        <member name="P:ConditionalConfigSync.PolicyStateChangedEventArgs.NewHidden">
+            <summary>The new effective hidden state.</summary>
+        </member>
+        <member name="P:ConditionalConfigSync.PolicyStateChangedEventArgs.Source">
+            <summary>Human-readable origin such as a policy reload or an incoming server package.</summary>
+        </member>
+        <member name="T:ConditionalConfigSync.SyncRejectedEventArgs">
+            <summary>
+            Describes a synchronization operation that was deliberately rejected before it could be applied or sent.
+            </summary>
+            <remarks>
+            Typical reasons include permission checks, malformed fragments, queue overflow, payloads larger than the configured
+            safety limit, or a package-level exception. This event is diagnostic; handlers should not retry automatically
+            without understanding the reason, because doing so can create a retry loop.
+            </remarks>
+        </member>
+        <member name="P:ConditionalConfigSync.SyncRejectedEventArgs.Reason">
+            <summary>Human-readable rejection reason suitable for logs and diagnostics.</summary>
+        </member>
+        <member name="P:ConditionalConfigSync.SyncRejectedEventArgs.SenderUid">
+            <summary>Remote sender UID for an incoming package, or <see langword="null"/> for a local outgoing rejection.</summary>
+        </member>
+        <member name="P:ConditionalConfigSync.SyncRejectedEventArgs.Incoming">
+            <summary><see langword="true"/> for an incoming package; <see langword="false"/> for a local outgoing operation.</summary>
+        </member>
+        <member name="P:ConditionalConfigSync.SyncRejectedEventArgs.Exception">
+            <summary>The originating exception when rejection followed an exception, otherwise <see langword="null"/>.</summary>
+        </member>
+        <member name="T:ConditionalConfigSync.VersionCheck">
+            <summary>
+            Performs peer version compatibility checks for a mod.
+            </summary>
+            <remarks>
+            A <see cref="T:ConditionalConfigSync.ConditionalConfigSync"/> instance creates and maintains its own version check automatically. Construct
+            this class directly only for a mod that needs version validation without registering synchronized values.
+            </remarks>
+        </member>
+        <member name="F:ConditionalConfigSync.VersionCheck.Name">
+            <summary>Stable mod identifier used by the version-check RPC.</summary>
+        </member>
+        <member name="P:ConditionalConfigSync.VersionCheck.DisplayName">
+            <summary>Human-readable mod name used in connection errors and logs.</summary>
+        </member>
+        <member name="P:ConditionalConfigSync.VersionCheck.CurrentVersion">
+            <summary>Current local mod version.</summary>
+        </member>
+        <member name="P:ConditionalConfigSync.VersionCheck.MinimumRequiredVersion">
+            <summary>Oldest compatible version accepted from the remote peer.</summary>
+        </member>
+        <member name="P:ConditionalConfigSync.VersionCheck.ModRequired">
+            <summary>
+            Gets or sets whether the checked mod must be installed and compatible on the remote peer.
+            </summary>
+            <remarks>
+            When enabled on a client, the server must have a compatible copy of the mod. When enabled on a server, every
+            connecting client must have a compatible copy. A standalone <see cref="T:ConditionalConfigSync.VersionCheck"/> defaults to
+            <see langword="true"/>. A version check created for <see cref="T:ConditionalConfigSync.ConditionalConfigSync"/> mirrors that instance's
+            <see cref="P:ConditionalConfigSync.ConditionalConfigSync.ModRequired"/> value. Configure it before the connection handshake.
+            </remarks>
+        </member>
+        <member name="P:ConditionalConfigSync.VersionCheck.RemoteServerProtocolVersion">
+            <summary>
+            Protocol version reported by the connected server. Zero means that the version handshake has not completed or
+            that the server did not provide protocol metadata.
+            </summary>
+        </member>
+        <member name="P:ConditionalConfigSync.VersionCheck.RemoteServerProtocolKnown">
+            <summary>Whether protocol metadata has already been received from the connected server.</summary>
+        </member>
+        <member name="M:ConditionalConfigSync.VersionCheck.#ctor(System.String)">
+            <summary>Creates a standalone version check not backed by a synchronization instance.</summary>
+            <param name="name">Stable unique mod identifier.</param>
+        </member>
+        <member name="M:ConditionalConfigSync.VersionCheck.#ctor(ConditionalConfigSync.ConditionalConfigSync)">
+            <summary>Creates a version check backed by a <see cref="T:ConditionalConfigSync.ConditionalConfigSync"/> instance.</summary>
+            <param name="configSync">The synchronization instance whose version fields should be used.</param>
+        </member>
+        <member name="M:ConditionalConfigSync.VersionCheck.Initialize">
+            <summary>
+            Clears received peer-version state and refreshes fields from the backing synchronization instance.
+            </summary>
+            <remarks>ConditionalConfigSync calls this as part of its connection lifecycle; most mods do not call it directly.</remarks>
+        </member>
+    </members>
+</doc>
