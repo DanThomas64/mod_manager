@@ -69,11 +69,13 @@ fn main() -> Result<()> {
 
     std::fs::remove_dir_all(&staging_dir).ok();
 
+    let entry = release::render_changelog_entry(&version, &bepinex_version, &changes, &date);
+
     let linux_name = format!("installer-linux-v{version}");
     let windows_name = format!("installer-windows-v{version}.exe");
 
     if args.shell_linux.exists() {
-        embed::embed_payload(&args.shell_linux, &payload, &release_dir.join(&linux_name))
+        embed::embed_payload(&args.shell_linux, &payload, &entry, &release_dir.join(&linux_name))
             .context("embedding Linux installer")?;
         println!("  wrote {linux_name}");
     } else {
@@ -84,7 +86,7 @@ fn main() -> Result<()> {
     }
 
     if args.shell_windows.exists() {
-        embed::embed_payload(&args.shell_windows, &payload, &release_dir.join(&windows_name))
+        embed::embed_payload(&args.shell_windows, &payload, &entry, &release_dir.join(&windows_name))
             .context("embedding Windows installer")?;
         println!("  wrote {windows_name}");
     } else {
@@ -96,7 +98,6 @@ fn main() -> Result<()> {
 
     new_lockfile.save(release_dir.join("modpack.lock.toml"))?;
 
-    let entry = release::render_changelog_entry(&version, &bepinex_version, &changes, &date);
     release::prepend_changelog(&args.releases_dir, &entry)?;
     std::fs::write(release_dir.join("RELEASE_NOTES.md"), &entry)?;
 

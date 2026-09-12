@@ -40,9 +40,16 @@ pub fn run() -> Result<()> {
         }
     }
 
-    let payload = extract::read_own_payload().context("reading embedded mod payload")?;
+    let own_payload = extract::read_own_payload().context("reading embedded mod payload")?;
+    print_changelog(&own_payload.changelog);
+    if !confirm_install()? {
+        println!("\nCancelled — nothing was changed.");
+        pause_before_exit();
+        return Ok(());
+    }
+
     let temp_dir = std::env::temp_dir().join(format!("valheim-mod-installer-{}", std::process::id()));
-    extract::unpack_payload(&payload, &temp_dir).context("unpacking mod payload")?;
+    extract::unpack_payload(&own_payload.payload, &temp_dir).context("unpacking mod payload")?;
 
     let backup_outcome =
         backup::snapshot_before_overwrite(&root, &temp_dir).context("backing up files before install")?;
@@ -73,6 +80,30 @@ fn print_banner() {
          symlinked mod setup restores exactly as it was). Backups are never deleted automatically \
          — that's on you to clean up once you're confident you don't need them.\n"
     );
+}
+
+/// Show the changelog entry for the version embedded in this installer, so
+/// the user knows what they're about to install before confirming.
+fn print_changelog(changelog: &str) {
+    let changelog = changelog.trim();
+    if changelog.is_empty() {
+        return;
+    }
+    println!("--- What's in this version ---");
+    println!("{changelog}");
+    println!("-------------------------------");
+}
+
+/// Ask the user to confirm before making any changes. Pressing Enter with no
+/// input confirms (keeps the common case single-click); anything starting
+/// with 'n' cancels.
+fn confirm_install() -> Result<bool> {
+    print!("Continue with install? [Y/n] ");
+    io::stdout().flush().ok();
+    let mut line = String::new();
+    io::stdin().read_line(&mut line).context("reading install confirmation")?;
+    let trimmed = line.trim().to_lowercase();
+    Ok(trimmed.is_empty() || trimmed == "y" || trimmed == "yes")
 }
 
 fn print_backup_outcome(outcome: &backup::BackupOutcome, subject: &str) {
