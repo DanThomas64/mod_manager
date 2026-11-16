@@ -138,7 +138,12 @@ fn unzip_to(zip_path: &Path, dest: &Path) -> Result<()> {
     std::fs::create_dir_all(dest)?;
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i)?;
-        let Some(relative) = entry.enclosed_name() else {
+        // Some Thunderstore packages (e.g. Jotunn 2.30.1) store entry names
+        // with Windows-style backslash separators. `enclosed_name()` only
+        // splits on '/', so a name like `plugins\Jotunn.dll` comes back as a
+        // single literal filename instead of a `plugins/Jotunn.dll` path,
+        // which then fails the `plugins/` folder detection below.
+        let Some(relative) = normalized_entry_path(entry.name()) else {
             continue;
         };
         let out_path = dest.join(relative);
@@ -164,6 +169,23 @@ fn unzip_to(zip_path: &Path, dest: &Path) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Turn a zip entry name into a safe relative path, treating both `/` and
+/// `\` as separators (some Thunderstore packages use backslashes) and
+/// rejecting any `..`/absolute component to prevent path traversal — the
+/// same protection `enclosed_name()` provides, just backslash-aware.
+fn normalized_entry_path(name: &str) -> Option<PathBuf> {
+    let normalized = name.replace('\\', "/");
+    let mut out = PathBuf::new();
+    for component in Path::new(&normalized).components() {
+        match component {
+            std::path::Component::Normal(part) => out.push(part),
+            std::path::Component::CurDir => {}
+            _ => return None,
+        }
+    }
+    if out.as_os_str().is_empty() { None } else { Some(out) }
 }
 
 /// Find the first directory named `name` (case-insensitive) anywhere under `root`.

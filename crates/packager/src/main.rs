@@ -24,6 +24,13 @@ struct Args {
     /// Prebuilt installer-shell binary for the Windows target (x86_64-pc-windows-gnu).
     #[arg(long, default_value = "target/x86_64-pc-windows-gnu/release/installer-shell.exe")]
     shell_windows: PathBuf,
+    /// Re-run packaging for the existing `latest.txt` release in place
+    /// (same version, same changelog entry) instead of cutting a new
+    /// release. For packager-only fixes (e.g. an extraction bug) where the
+    /// mod set didn't change, so a version bump / new changelog entry isn't
+    /// warranted.
+    #[arg(long)]
+    rebuild: bool,
 }
 
 fn main() -> Result<()> {
@@ -39,22 +46,35 @@ fn main() -> Result<()> {
         .clone();
 
     std::fs::create_dir_all(&args.releases_dir)?;
-    let (previous_version, previous_lockfile) = release::load_previous(&args.releases_dir)?;
-    let changes = diff_lockfiles(&previous_lockfile, &new_lockfile);
 
-    let Some(version) = release::next_version(&previous_version, &changes) else {
-        println!(
-            "No changes since v{} — nothing to release.",
-            previous_version.unwrap()
-        );
-        return Ok(());
+    let (version, release_dir, date, entry, skip_metadata_writes) = if args.rebuild {
+        let (previous_version, _) = release::load_previous(&args.releases_dir)?;
+        let version = previous_version.context("no existing release to rebuild (releases/latest.txt missing)")?;
+        let release_dir = args.releases_dir.join(format!("v{version}"));
+        let entry = std::fs::read_to_string(release_dir.join("RELEASE_NOTES.md"))
+            .with_context(|| format!("reading existing changelog entry for v{version} to reuse"))?;
+        println!("Rebuilding release v{version} in place (packager fix, no version bump)...");
+        (version, release_dir, current_date(), entry, true)
+    } else {
+        let (previous_version, previous_lockfile) = release::load_previous(&args.releases_dir)?;
+        let changes = diff_lockfiles(&previous_lockfile, &new_lockfile);
+
+        let Some(version) = release::next_version(&previous_version, &changes) else {
+            println!(
+                "No changes since v{} — nothing to release.",
+                previous_version.unwrap()
+            );
+            return Ok(());
+        };
+
+        println!("Packaging release v{version}...");
+        let release_dir = args.releases_dir.join(format!("v{version}"));
+        std::fs::create_dir_all(&release_dir)?;
+        let date = current_date();
+        let entry = release::render_changelog_entry(&version, &bepinex_version, &changes, &date);
+        (version, release_dir, date, entry, false)
     };
 
-    println!("Packaging release v{version}...");
-    let release_dir = args.releases_dir.join(format!("v{version}"));
-    std::fs::create_dir_all(&release_dir)?;
-
-    let date = current_date();
     let staging_dir = std::env::temp_dir().join("valheim-mod-packager-staging");
     let payload = archive::build_payload(&args.cache_dir, &new_lockfile, &staging_dir, &version, &date)
         .context("building mod payload")?;
@@ -68,8 +88,6 @@ fn main() -> Result<()> {
     println!("  wrote server-plugins/ (for dedicated server hosts)");
 
     std::fs::remove_dir_all(&staging_dir).ok();
-
-    let entry = release::render_changelog_entry(&version, &bepinex_version, &changes, &date);
 
     let linux_name = format!("installer-linux-v{version}");
     let windows_name = format!("installer-windows-v{version}.exe");
@@ -98,7 +116,9 @@ fn main() -> Result<()> {
 
     new_lockfile.save(release_dir.join("modpack.lock.toml"))?;
 
-    release::prepend_changelog(&args.releases_dir, &entry)?;
+    if !skip_metadata_writes {
+        release::prepend_changelog(&args.releases_dir, &entry)?;
+    }
     std::fs::write(release_dir.join("RELEASE_NOTES.md"), &entry)?;
 
     let instructions = release::render_instructions(&version, &bepinex_version);
