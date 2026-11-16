@@ -1,0 +1,37 @@
+{
+  "RestockLabelCharacter": "A",
+  "QuickStackLabelCharacter": "Q",
+  "SortLabelCharacter": "S",
+
+  "QuickStackResultMessageNothing": "Nichts zum Schnellstapeln",
+  "QuickStackResultMessageNone": "0 Gegenstände gestapelt",
+  "QuickStackResultMessageOne": "1 Gegenstand gestapelt",
+  "QuickStackResultMessageMore": "{0} Gegenstände gestapelt",
+
+  "RestockResultMessageNothing": "Nichts zum Auffüllen",
+  "RestockResultMessageNone": "Konnte nicht aufgefüllt werden (0/{0})",
+  "RestockResultMessagePartial": "Teilweise aufgefüllt ({0}/{1})",
+  "RestockResultMessageFull": "Vollständig aufgefüllt (Gesamt: {0})",
+
+  "QuickStackLabel": "Schnellstapeln",
+  "StoreAllLabel": "Alles ablegen",
+  "SortLabel": "Sortieren",
+  "RestockLabel": "Auffüllen",
+  "TrashLabel": "Müll",
+
+  "SortByInternalNameLabel": "I. Name",
+  "SortByTranslatedNameLabel": "Ü. Name",
+  "SortByValueLabel": "Wert",
+  "SortByWeightLabel": "Gewicht",
+  "SortByTypeLabel": "Typ",
+
+  "TrashConfirmationOkayButton": "Wegwerfen",
+  "QuickTrashConfirmation": "Schnell wegwerfen?",
+  "CantTrashFavoritedItemWarning": "Favorisierter Gegenstand kann nicht weggeworfen werden!",
+  "CantTrashFlagFavoritedItemWarning": "Favorisierter Gegenstand kann nicht als Müll markiert werden!",
+  "CantTrashHotkeyBarItemWarning": "Einstellungen verbieten das Wegwerfen von Gegenständen in der Schnellzugriffsleiste!",
+  "CantFavoriteTrashFlaggedItemWarning": "Als Müll markierter Gegenstand kann nicht favorisiert werden!",
+
+  "FavoritedItemTooltip": "Wird nicht schnell gestapelt, sortiert,\nmit 'Alles ablegen' verschoben oder weggeworfen",
+  "TrashFlaggedItemTooltip": "Kann schnell weggeworfen werden"
+}

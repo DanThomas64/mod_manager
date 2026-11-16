@@ -1,0 +1,69 @@
+[bepinex]
+version = "5.4.2360"
+source_url = "https://thunderstore.io/package/download/denikson/BepInExPack_Valheim/5.4.2360/"
+sha256 = "6bca77b1016acfe0ffaebb6534c84b12ae8d12e5a96abbf59ec6e4526204fc6f"
+
+[mods.conditional-config-sync]
+version = "1.0.11"
+source_url = "https://thunderstore.io/package/download/shudnal/ConditionalConfigSync/1.0.11/"
+sha256 = "19146ae5a25cc3c7bddf47a6d17e4b8fb2c6c29c97360abd93664ba7a4433a62"
+
+[mods.configuration-manager]
+version = "1.1.27"
+source_url = "https://thunderstore.io/package/download/shudnal/ConfigurationManager/1.1.27/"
+sha256 = "d191d50b538ef067c027bb6d5bd3b3c9d6340b5856e7f05ec1c5234766030561"
+
+[mods.equipment-and-quickslots]
+version = "3.2.1"
+source_url = "https://thunderstore.io/package/download/RandyKnapp/EquipmentAndQuickSlots/3.2.1/"
+sha256 = "7c3e47ab7ff783c5abcc49729c153237ac1b80bbe9bfe554172068ba6c4c1f44"
+
+[mods.jotunn]
+version = "2.30.2"
+source_url = "https://thunderstore.io/package/download/ValheimModding/Jotunn/2.30.2/"
+sha256 = "8aae92da2be0eb6820cd4cf57e2f6c1d6ad0d738d4915966e7c3d7a94e9a9b0f"
+
+[mods.json-dot-net]
+version = "13.0.4"
+source_url = "https://thunderstore.io/package/download/ValheimModding/JsonDotNET/13.0.4/"
+sha256 = "a221c7be7163ab9739274b962fbd1f63abde65b1418839a62f02aca210868147"
+
+[mods.plant-easily]
+version = "2.3.1"
+source_url = "https://thunderstore.io/package/download/Advize/PlantEasily/2.3.1/"
+sha256 = "33642b3ff193e220fbe9301ecd0a2a150bf60c551f0fa06cfc03d96bcdc6ffe0"
+
+[mods.plant-everything]
+version = "1.21.4"
+source_url = "https://thunderstore.io/package/download/Advize/PlantEverything/1.21.4/"
+sha256 = "4fc80476bcaf124fd80a82996a8a97f70c1395517f49923d9f5a693f9c2b89ed"
+
+[mods.quick-pins]
+version = "1.0.2"
+source_url = "https://thunderstore.io/package/download/Dreich/QuickPins/1.0.2/"
+sha256 = "75927a540367e8a137d550f7309cfe6583281a16f8049b1c98f4872b0a0e77af"
+
+[mods.quick-stack-store-sort-trash-restock]
+version = "1.4.16"
+source_url = "https://thunderstore.io/package/download/Goldenrevolver/Quick_Stack_Store_Sort_Trash_Restock/1.4.16/"
+sha256 = "4c1dfd872972783f3eb63384ca889b51fdd75836e679a4fac1de80e097f86538"
+
+[mods.speedy-paths]
+version = "1.0.9"
+source_url = "https://thunderstore.io/package/download/Nextek/SpeedyPaths/1.0.9/"
+sha256 = "e369c075f949de3716890b43a611a9153cd029d492a3c11611e460db3703b18a"
+
+[mods.timed-torches-stay-lit]
+version = "1.4.2"
+source_url = "https://thunderstore.io/package/download/TastyChickenLegs/TimedTorchesStayLit/1.4.2/"
+sha256 = "82013d207f9eecf7c1faf7cf50b38c44742742c4251a5d47aa1e81f99a4866e9"
+
+[mods.xportal]
+version = "1.2.26"
+source_url = "https://thunderstore.io/package/download/SpikeHimself/XPortal/1.2.26/"
+sha256 = "22f60d253dff075c1e3d4e37e1590dc351587c3fe8ca9c40aaac3f7805d5f34c"
+
+[mods.yaml-dot-net]
+version = "16.3.1"
+source_url = "https://thunderstore.io/package/download/ValheimModding/YamlDotNet/16.3.1/"
+sha256 = "2280480d2add7d6a7a17b882f9b755145160c852e89a14794d1493d08495d2ac"
